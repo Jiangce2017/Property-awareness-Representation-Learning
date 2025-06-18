@@ -14,7 +14,7 @@ from utils import CombinedDataset,loss_function, load_mat
 if __name__ == '__main__':
     cuda = False
     device = torch.device("cuda" if cuda else "cpu")
-    train_model = True
+    train_model = False
     im_x = 50
     im_y = 50
 
