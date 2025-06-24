@@ -27,7 +27,7 @@ if __name__ == '__main__':
     dataset_path = './datasets/Wang/ShapeSpace.mat'
     batch_size = 100
     x_dim  = 2500
-    hidden_dim = 128
+    hidden_dim = 64
     latent_dim = 32
     lr = 1e-3
     epochs = 100

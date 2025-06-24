@@ -62,23 +62,31 @@ class FL_Decoder(nn.Module):
 class CNN_Encoder(nn.Module):
         def __init__(self, input_dim, hidden_dim, latent_dim,im_x,im_y):
             super(CNN_Encoder, self).__init__()
+            
+            # 1 input channel --> hidden_dim channels 
             self.conv1 = nn.Conv2d(input_dim, hidden_dim, kernel_size=(3, 3), stride=1, padding=1)
             self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size=(3, 3), stride=1, padding=1)
             self.maxpool = nn.MaxPool2d(kernel_size=(2, 2)) ## half spatial dimension 
+            
             self.conv3 = nn.Conv2d(hidden_dim, hidden_dim*2, kernel_size=(3, 3), stride=1, padding=1)
             self.conv4 = nn.Conv2d(hidden_dim*2, hidden_dim*2, kernel_size=(3, 3), stride=1, padding=1)
             self.conv5 = nn.Conv2d(hidden_dim*2, hidden_dim*2, kernel_size=(3, 3), stride=1, padding=1)
+            
             self.flatten = nn.Flatten()
             # self.dense1 = nn.Linear(im_x*im_y*16, hidden_dim)
-            self.dense1 = nn.Linear(256 * 25 * 25, hidden_dim)
+            self.dense1 = nn.Linear((hidden_dim * 2) * 25 * 25, hidden_dim)
+            
+            
             self.layer_mean = nn.Linear(hidden_dim, latent_dim)
             self.layer_variance = nn.Linear(hidden_dim, latent_dim)
+            
             self.LeakyReLU = nn.LeakyReLU(0.2)
             self.im_x = im_x
             self.im_y = im_y
             
         def forward(self, x):
             x = x.view(-1,1,self.im_x,self.im_y)  # reshape to (batch_size, channels, height, width)
+            
             # complete the forward function
             x = self.LeakyReLU(self.conv1(x))
             x = self.LeakyReLU(self.conv2(x))
@@ -87,10 +95,9 @@ class CNN_Encoder(nn.Module):
             x = self.LeakyReLU(self.conv3(x))
             x = self.LeakyReLU(self.conv4(x))
             x = self.LeakyReLU(self.conv5(x))
-            # print("Shape before flatten:", x.shape)
+
 
             x = self.flatten(x)  # flatten the tensor
-            
             x = self.LeakyReLU(self.dense1(x))  # fully connected layer
             
             mean = self.layer_mean(x)       # one output: mean
@@ -102,18 +109,24 @@ class CNN_Encoder(nn.Module):
 class CNN_Decoder(nn.Module):
     def __init__(self, latent_dim, hidden_dim, output_dim,im_x,im_y):
         super(CNN_Decoder, self).__init__()
-
+        
+        self.init_channels = hidden_dim // 4                   # start decoding from fewer channels 
+        
+        
         self.dense1 = nn.Linear(latent_dim, im_x*im_y*2)
-        self.dense2 = nn.Linear(im_x*im_y*2, 16 * 25 * 25)
+        self.dense2 = nn.Linear(im_x*im_y*2, self.init_channels * 25 * 25)
         # self.dense2 = nn.Linear(im_x*im_y*2,im_x*im_y*16)
 
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear')
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear')  # from 25x25 --> 50x50
+        
+        
         # self.conv1 = nn.Conv2d(hidden_dim*2, hidden_dim, kernel_size=(3, 3), stride=1, padding=1)
-        self.conv1 = nn.Conv2d(16, hidden_dim, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(self.init_channels, hidden_dim, kernel_size=(3, 3), stride=1, padding=1)
         self.conv2 = nn.Conv2d(hidden_dim, 1, kernel_size=(3, 3), stride=1, padding=1)
 
         self.LeakyReLU = nn.LeakyReLU(0.2)
-        self.sigmoid = nn.Sigmoid()
+        self.sigmoid = nn.Sigmoid()   # to keep BCE-compatible output [0,1]
+        
         self.hidden_dim = hidden_dim
         self.im_x = im_x
         self.im_y = im_y
@@ -126,16 +139,15 @@ class CNN_Decoder(nn.Module):
 
         # Reshape to 4D tensor (batch_size, channels, height, width)
        
-        x = x.view(x.size(0), 16, 25, 25)
+        x = x.view(x.size(0), self.init_channels, 25, 25)
 
         # Upsample back to original image size
         x = self.upsample(x)  # Doubles spatial dimensions (from 25x25 to 50x50)
-        
         x = self.LeakyReLU(self.conv1(x))  # Build image features
         x = self.sigmoid(self.conv2(x))    # Output layer → values between 0 and 1
         
         print("Decoder output shape:", x.shape)
-
+        print("x_hat min: ", x.min().item(), "max: ", x.max().item())
         x_hat = x
         
         return x_hat   
