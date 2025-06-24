@@ -40,7 +40,7 @@ if __name__ == '__main__':
     mat_data = load_mat(dataset_path)
     dataset = mat_data['ShapeSpace']
     dataset = dataset.astype(np.float32)
-    dataset = dataset / 255.0  # Normalize to [0,1]
+    # dataset = dataset / 255.0  # Normalize to [0,1]
     dataset = dataset[:256]
     print("Original dataset min:", dataset.min(), "max:", dataset.max())
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.1, random_state=42)
@@ -75,7 +75,7 @@ if __name__ == '__main__':
                 
                 print("x_hat min:", x_hat.min().item(), "max:", x_hat.max().item())
                 
-                kl_weight = epoch / epochs  # gradually increase from 0 to 1
+                kl_weight = 1 # epoch / epochs  # gradually increase from 0 to 1
 
                 loss = loss_function_vae(x_flat, x_hat_flat, mean, log_var, kl_weight)
 
