@@ -10,7 +10,6 @@ from torch.optim import Adam
 import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split
-
 from models_vae import Model
 from utils import loss_function_vae, load_mat, show_image
 
@@ -24,7 +23,7 @@ if __name__ == '__main__':
     train_model = True
     im_x = 50
     im_y = 50 
-    model_type = 'FL'
+    model_type = 'CNN'
     dataset_path = './datasets/Wang/ShapeSpace.mat'
     batch_size = 100
     x_dim  = 2500
@@ -41,7 +40,9 @@ if __name__ == '__main__':
     mat_data = load_mat(dataset_path)
     dataset = mat_data['ShapeSpace']
     dataset = dataset.astype(np.float32)
+    dataset = dataset / 255.0  # Normalize to [0,1]
     dataset = dataset[:256]
+    print("Original dataset min:", dataset.min(), "max:", dataset.max())
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.1, random_state=42)
     train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True,drop_last=True, **kwargs)
     test_loader  = DataLoader(dataset=test_dataset,  batch_size=batch_size, shuffle=False,drop_last=False, **kwargs)
@@ -55,20 +56,38 @@ if __name__ == '__main__':
         for epoch in range(epochs):
             overall_loss = 0
             for batch_idx, x in enumerate(train_loader):
-                #x = x.view(batch_size, x_dim)
+            #for batch_idx, (x, _) in enumerate(train_loader):
+            # for batch_idx, data in enumerate(train_loader):
+            #    print("Type of batch:", type(data))
+            #    print("Length of batch:", len(data))
+            #    print("First element shape:", data[0].shape)
+            #    break
+
+                x = x.view(batch_size, x_dim)
                 x = x.to(device)
 
                 optimizer.zero_grad()
 
                 x_hat, mean, log_var = model(x)
-
-                loss = loss_function_vae(x.view(batch_size,x_dim), x_hat.view(batch_size,x_dim), mean, log_var)
                 
+                x_flat = x.view(x.size(0), -1)
+                x_hat_flat = x_hat.view(x_hat.size(0), -1)
+                
+                print("x_hat min:", x_hat.min().item(), "max:", x_hat.max().item())
+                
+                kl_weight = epoch / epochs  # gradually increase from 0 to 1
+
+                loss = loss_function_vae(x_flat, x_hat_flat, mean, log_var, kl_weight)
+
+                # loss = loss_function_vae(x.view(batch_size, -1), x_hat.view(batch_size, -1), mean, log_var)
+                # loss = loss_function_vae(x.view(batch_size,x_dim), x_hat.view(batch_size,x_dim), mean, log_var)
+                # loss = loss_function_vae(x, x_hat.view(batch_size, -1), mean, log_var)
+
                 overall_loss += loss.item()
                 
                 loss.backward()
                 optimizer.step()
-                
+               
             print("\tEpoch", epoch + 1, "complete!", "\tAverage Loss: ", overall_loss / (batch_idx*batch_size))
             
         print("Finish!!")
@@ -80,11 +99,11 @@ if __name__ == '__main__':
         with torch.no_grad():
             for batch_idx, x in enumerate(tqdm(test_loader)):
                 print(x.shape)
-                #x = x.view(batch_size, x_dim)
+                x = x.view(batch_size, x_dim)
                 x = x.to(device)
                 
                 x_hat, _, _ = loaded_model(x)
-                #break
+                break
         
         show_image(x[0])
         show_image(x_hat[0].view(im_x,im_y))

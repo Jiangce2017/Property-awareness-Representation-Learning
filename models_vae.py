@@ -69,7 +69,8 @@ class CNN_Encoder(nn.Module):
             self.conv4 = nn.Conv2d(hidden_dim*2, hidden_dim*2, kernel_size=(3, 3), stride=1, padding=1)
             self.conv5 = nn.Conv2d(hidden_dim*2, hidden_dim*2, kernel_size=(3, 3), stride=1, padding=1)
             self.flatten = nn.Flatten()
-            self.dense1 = nn.Linear(im_x*im_y*16, hidden_dim)
+            # self.dense1 = nn.Linear(im_x*im_y*16, hidden_dim)
+            self.dense1 = nn.Linear(256 * 25 * 25, hidden_dim)
             self.layer_mean = nn.Linear(hidden_dim, latent_dim)
             self.layer_variance = nn.Linear(hidden_dim, latent_dim)
             self.LeakyReLU = nn.LeakyReLU(0.2)
@@ -77,19 +78,38 @@ class CNN_Encoder(nn.Module):
             self.im_y = im_y
             
         def forward(self, x):
-            x = x.view(-1,1,self.im_x,self.im_y)
+            x = x.view(-1,1,self.im_x,self.im_y)  # reshape to (batch_size, channels, height, width)
             # complete the forward function
+            x = self.LeakyReLU(self.conv1(x))
+            x = self.LeakyReLU(self.conv2(x))
+            x = self.maxpool(x)  # reduces size by 2
+            
+            x = self.LeakyReLU(self.conv3(x))
+            x = self.LeakyReLU(self.conv4(x))
+            x = self.LeakyReLU(self.conv5(x))
+            # print("Shape before flatten:", x.shape)
+
+            x = self.flatten(x)  # flatten the tensor
+            
+            x = self.LeakyReLU(self.dense1(x))  # fully connected layer
+            
+            mean = self.layer_mean(x)       # one output: mean
+            log_var = self.layer_variance(x)  # one output: log(variance)
+
             return mean, log_var
+    
     
 class CNN_Decoder(nn.Module):
     def __init__(self, latent_dim, hidden_dim, output_dim,im_x,im_y):
         super(CNN_Decoder, self).__init__()
 
         self.dense1 = nn.Linear(latent_dim, im_x*im_y*2)
-        self.dense2 = nn.Linear(im_x*im_y*2,im_x*im_y*16)
+        self.dense2 = nn.Linear(im_x*im_y*2, 16 * 25 * 25)
+        # self.dense2 = nn.Linear(im_x*im_y*2,im_x*im_y*16)
 
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear')
-        self.conv1 = nn.Conv2d(hidden_dim*2, hidden_dim, kernel_size=(3, 3), stride=1, padding=1)
+        # self.conv1 = nn.Conv2d(hidden_dim*2, hidden_dim, kernel_size=(3, 3), stride=1, padding=1)
+        self.conv1 = nn.Conv2d(16, hidden_dim, kernel_size=3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(hidden_dim, 1, kernel_size=(3, 3), stride=1, padding=1)
 
         self.LeakyReLU = nn.LeakyReLU(0.2)
@@ -101,4 +121,21 @@ class CNN_Decoder(nn.Module):
         
     def forward(self, x):
         # complete the forward function
+        x = self.LeakyReLU(self.dense1(x))  # Expand latent vector
+        x = self.LeakyReLU(self.dense2(x))  # Expand more
+
+        # Reshape to 4D tensor (batch_size, channels, height, width)
+       
+        x = x.view(x.size(0), 16, 25, 25)
+
+        # Upsample back to original image size
+        x = self.upsample(x)  # Doubles spatial dimensions (from 25x25 to 50x50)
+        
+        x = self.LeakyReLU(self.conv1(x))  # Build image features
+        x = self.sigmoid(self.conv2(x))    # Output layer → values between 0 and 1
+        
+        print("Decoder output shape:", x.shape)
+
+        x_hat = x
+        
         return x_hat   
