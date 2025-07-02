@@ -43,4 +43,6 @@ def loss_function_vae(x, x_hat, material_pred, y_true, log_var, kl_weight=1.0):
     kl = -0.5 * torch.sum(1 + log_var - log_var.exp()) / x.size(0)
     mse = nn.functional.mse_loss(material_pred, y_true, reduction='mean')
 
+    print("recon_loss: {}, kl: {}, mse: {}".format(recon_loss, kl,mse ))
+
     return recon_loss + kl_weight * kl + mse

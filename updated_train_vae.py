@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from updated_models_vae import Model
 from updated_utils import loss_function_vae, load_mat, show_image
+from utils import CombinedDataset 
 
 property_path = './datasets/Wang/PropertySpace.mat'
 
@@ -42,15 +43,18 @@ if __name__ == '__main__':
 
     kwargs = {'num_workers': 1, 'pin_memory': False} 
 
-    from utils import CombinedDataset  
+     
     
     mat_data = load_mat(dataset_path)       #ShapeSpace
     prop_data = load_mat(property_path)     #PropertySpace
     
     X = mat_data['ShapeSpace'].astype(np.float32)
-    y = prop_data['PropertySpace'].astype(np.float32)    
+    y = prop_data['PropertySpace'].astype(np.float32).transpose()   
+    print("X shape:{}, y shape: {}".format(X.shape, y.shape))
     
     dataset = CombinedDataset(X,y)
+
+    print("dataset shape:{}".format(len(dataset)))
     
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.1, random_state=42)
     
@@ -71,7 +75,9 @@ if __name__ == '__main__':
     
     print("ShapeSpace min:", X.min(), "max:", X.max())
     print("PropertySpace min:", y.min(), "max:", y.max())
-        
+    
+    print("train_loader shape: {}".format(len(train_loader)))
+
     model = Model(x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y).to(device)
 
     if train_model:
@@ -82,7 +88,7 @@ if __name__ == '__main__':
             overall_loss = 0
             for batch_idx, (x, y) in enumerate(train_loader):
            
-
+                print("batch traning")
                 x = x.view(batch_size, x_dim)
                 x = x.to(device)
                 y = y.to(device)

@@ -25,8 +25,8 @@ class Model(nn.Module):
         material_pred, latent_z, log_var = self.Encoder(x)
         
         z = self.reparameterization(latent_z, torch.exp(0.5 * log_var)) # takes exponential function (log var -> var)
-        z_combined = torch.cat([material_pred, z], dim=1)
-        x_hat = self.Decoder(z_combined)
+        #z_combined = torch.cat([material_pred, z], dim=1)
+        x_hat = self.Decoder(z)
 
         return x_hat, material_pred, log_var    
 
@@ -113,7 +113,7 @@ class CNN_Encoder(nn.Module):
             log_var = self.layer_variance(x)  # one output: log(variance)
             
             material_pred = mean[:, :self.num_properties]
-            latent_z = mean[:, self.num_properties:]
+            latent_z = mean
             
             return material_pred, latent_z, log_var
     
