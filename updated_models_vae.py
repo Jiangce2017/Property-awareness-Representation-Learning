@@ -2,12 +2,15 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class Model(nn.Module):
     def __init__(self,x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y):
         super(Model, self).__init__()
+        
+        self.latent_dim     = latent_dim
+        self.num_properties = 5   # since there are 5 material dims
         self.device = device
-        self.num_properties = 5
         
         if model_type == 'CNN':
             self.Encoder = CNN_Encoder(input_dim=1, hidden_dim=hidden_dim, latent_dim=latent_dim,im_x=im_x, im_y=im_y, num_properties=self.num_properties)
@@ -29,6 +32,27 @@ class Model(nn.Module):
         x_hat = self.Decoder(z)
 
         return x_hat, material_pred, log_var    
+    
+    @torch.no_grad()
+    def generate_by_properties(self, prop_vec, num_samples=1):
+        """
+        Generate shapes whose first `num_properties` latent dims equal prop_vec.
+        prop_vec: list or 1D array of length num_properties
+        """
+        # 1. Build a [num_samples x num_properties] tensor
+        p = torch.tensor(prop_vec, dtype=torch.float32, device=self.device)
+        p = p.unsqueeze(0).repeat(num_samples, 1)
+        # 2. Sample the remaining latent dims from N(0,1)
+        rest = torch.randn(num_samples,
+                           self.latent_dim - self.num_properties,
+                           device=self.device)
+        # 3. Concatenate [properties | noise] into full latent vector
+        z = torch.cat([p, rest], dim=1)  # shape: [num_samples, latent_dim]
+        
+        # 4. Decode through your decoder
+        x_hat = self.Decoder(z)          # returns [num_samples, 1, im_x, im_y]
+        return x_hat
+
 
 class FL_Encoder(nn.Module):
         def __init__(self, input_dim, hidden_dim, latent_dim):
@@ -71,18 +95,30 @@ class CNN_Encoder(nn.Module):
             super(CNN_Encoder, self).__init__()
             
             self.num_properties = num_properties
+            self.im_x = im_x
+            self.im_y = im_y
             
             # 1 input channel --> hidden_dim channels 
             self.conv1 = nn.Conv2d(input_dim, hidden_dim, kernel_size=(3, 3), stride=1, padding=1)
+            self.bn1   = nn.BatchNorm2d(hidden_dim)
+
             self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size=(3, 3), stride=1, padding=1)
+            self.bn2   = nn.BatchNorm2d(hidden_dim)
+
             self.maxpool = nn.MaxPool2d(kernel_size=(2, 2)) ## half spatial dimension 
             
             self.conv3 = nn.Conv2d(hidden_dim, hidden_dim*2, kernel_size=(3, 3), stride=1, padding=1)
+            self.bn3   = nn.BatchNorm2d(hidden_dim*2)
+
             self.conv4 = nn.Conv2d(hidden_dim*2, hidden_dim*2, kernel_size=(3, 3), stride=1, padding=1)
+            self.bn4   = nn.BatchNorm2d(hidden_dim*2)
+
             self.conv5 = nn.Conv2d(hidden_dim*2, hidden_dim*2, kernel_size=(3, 3), stride=1, padding=1)
+            self.bn5   = nn.BatchNorm2d(hidden_dim*2)
             
+            # flatten + dense to latent 
+            #flat_size = (hidden_dim * 2) * (im_x // 2) * (im_y // 2)
             self.flatten = nn.Flatten()
-            # self.dense1 = nn.Linear(im_x*im_y*16, hidden_dim)
             self.dense1 = nn.Linear((hidden_dim * 2) * 25 * 25, hidden_dim)
             
             
@@ -90,20 +126,20 @@ class CNN_Encoder(nn.Module):
             self.layer_variance = nn.Linear(hidden_dim, latent_dim)
             
             self.LeakyReLU = nn.LeakyReLU(0.2)
-            self.im_x = im_x
-            self.im_y = im_y
+            # self.im_x = im_x
+            # self.im_y = im_y
             
         def forward(self, x):
-            x = x.view(-1,1,self.im_x,self.im_y)  # reshape to (batch_size, channels, height, width)
+            x = x.view(-1, 1, self.im_x, self.im_y)  # reshape to (batch_size, channels, height, width)
             
             # complete the forward function
-            x = self.LeakyReLU(self.conv1(x))
-            x = self.LeakyReLU(self.conv2(x))
+            x = self.LeakyReLU(self.bn1(self.conv1(x)))
+            x = self.LeakyReLU(self.bn2(self.conv2(x)))
             x = self.maxpool(x)  # reduces size by 2
             
-            x = self.LeakyReLU(self.conv3(x))
-            x = self.LeakyReLU(self.conv4(x))
-            x = self.LeakyReLU(self.conv5(x))
+            x = self.LeakyReLU(self.bn3(self.conv3(x)))
+            x = self.LeakyReLU(self.bn4(self.conv4(x)))
+            x = self.LeakyReLU(self.bn5(self.conv5(x)))
 
 
             x = self.flatten(x)  # flatten the tensor
