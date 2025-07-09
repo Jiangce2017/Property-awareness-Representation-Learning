@@ -21,8 +21,9 @@ class Model(nn.Module):
         
     def reparameterization(self, mean, var):
         epsilon = torch.randn_like(var).to(self.device)        # sampling epsilon        
-        z = mean + var*epsilon                          # reparameterization trick
-        return z
+        mean[:,5:] += var*epsilon
+        # z = mean + var*epsilon                          # reparameterization trick
+        return mean
         
     def forward(self, x):
         material_pred, latent_z, log_var = self.Encoder(x)
@@ -123,7 +124,7 @@ class CNN_Encoder(nn.Module):
             
             
             self.layer_mean = nn.Linear(hidden_dim, latent_dim)
-            self.layer_variance = nn.Linear(hidden_dim, latent_dim)
+            self.layer_variance = nn.Linear(hidden_dim, latent_dim - 5)
             
             self.LeakyReLU = nn.LeakyReLU(0.2)
             # self.im_x = im_x
