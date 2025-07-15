@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 
 import torch.nn.utils as nn_utils
 
+from utils_FNO import loss_function as fno_loss
+
 from sklearn.model_selection import train_test_split
 from updated_models_vae import Model
 from updated_utils import loss_function_vae, load_mat, show_image
@@ -35,7 +37,7 @@ if __name__ == '__main__':
     train_model = True
     im_x = 50
     im_y = 50 
-    model_type = 'CNN'
+    model_type = 'FNO'
     dataset_path = './datasets/Wang/ShapeSpace.mat'
     batch_size = 500
     x_dim  = 2500
@@ -100,7 +102,7 @@ if __name__ == '__main__':
     
     print("train_loader shape: {}".format(len(train_loader)))
 
-    model = Model(x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y).to(device)
+    model = Model(x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y, modes1=10, modes2=6).to(device)
 
     if train_model:
         optimizer = Adam(model.parameters(), lr=lr)
@@ -136,6 +138,7 @@ if __name__ == '__main__':
 
                 x_hat, material_pred, log_var = model(x)
                 
+                
                 x_flat = x.view(x.size(0), -1)
                 x_hat_flat = x_hat.view(x_hat.size(0), -1)
                 
@@ -152,8 +155,17 @@ if __name__ == '__main__':
 
                 kl_weight = min(kl_max_weight, (epoch + 1) / warmup_epochs)
                 
-                
-                loss = loss_function_vae(x_flat, x_hat_flat, material_pred, y, log_var, kl_weight)
+                if model_type in ('FNO', 'Freq_FNO'):
+                    # fno_loss should return at least the total loss as its first output
+                    loss, *_ = fno_loss(
+                        x.view(-1, x_dim),           # true flattened
+                        x_hat.view(-1, x_dim),       # pred flattened
+                        material_pred,               # here is your “mean”
+                        log_var,                     # here is your “log_var”
+                        model_type                   # if your loss needs to know real vs complex
+                        )
+                else: 
+                    loss = loss_function_vae(x_flat, x_hat_flat, material_pred, y, log_var, kl_weight)
                 
                 #overall_loss += loss.item()
                 

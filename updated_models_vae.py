@@ -3,36 +3,111 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from models_FNO import FNO_Encoder, FNO_Decoder, FreqFNO_Decoder
 
 class Model(nn.Module):
-    def __init__(self,x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y):
+    def __init__(self,x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y, modes1: int = 10, modes2: int = 6):
         super(Model, self).__init__()
         
         self.latent_dim     = latent_dim
         self.num_properties = 5   # since there are 5 material dims
         self.device = device
-        
+        self.modes1 = modes1
+        self.modes2 = modes2
+        self.model_type = model_type
+
+        self.im_x = im_x
+        self.im_y = im_y
+
         if model_type == 'CNN':
             self.Encoder = CNN_Encoder(input_dim=1, hidden_dim=hidden_dim, latent_dim=latent_dim,im_x=im_x, im_y=im_y, num_properties=self.num_properties)
             self.Decoder = CNN_Decoder(latent_dim=latent_dim, hidden_dim = hidden_dim, output_dim = x_dim,im_x=im_x, im_y=im_y)
         elif model_type == 'FL':
             self.Encoder = FL_Encoder(input_dim=x_dim, hidden_dim=hidden_dim, latent_dim=latent_dim)
             self.Decoder = FL_Decoder(latent_dim=latent_dim, hidden_dim = hidden_dim, output_dim = x_dim)
-        
+        elif model_type == 'FNO':   # real-valued Fourier Neural Operator
+            self.Encoder = FNO_Encoder(
+                input_dim   = x_dim, 
+                hidden_dim  = hidden_dim, 
+                latent_dim  = latent_dim, 
+                im_x        = im_x, 
+                im_y        = im_y, 
+                modes1      = modes1, 
+                modes2      = modes2,)
+            self.Decoder = FNO_Decoder(
+                latent_dim  = latent_dim,
+                hidden_dim  = hidden_dim,
+                output_dim  = x_dim,
+                im_x        = im_x,
+                im_y        = im_y,
+                modes1      = modes1,
+                modes2      = modes2,)
+        elif model_type == 'Freq_FNO':
+            # complex-valued Fourier Neural Operator
+            # here latent_dim//2 since FreqFNO works in complex pairs
+            half_latent = latent_dim // 2
+            self.Encoder = FNO_Encoder(
+                input_dim  = x_dim,
+                hidden_dim = hidden_dim,
+                latent_dim = half_latent,
+                im_x       = im_x,
+                im_y       = im_y,
+                modes1     = modes1,
+                modes2     = modes2,
+            )
+            self.Decoder = FreqFNO_Decoder(
+                latent_dim  = half_latent,
+                hidden_dim  = hidden_dim,
+                output_dim  = x_dim,
+                im_x        = im_x,
+                im_y        = im_y,
+                modes1      = modes1,
+                modes2      = modes2,
+            )
+            
+        else:
+            raise ValueError(f"Unknown model_type: {model_type}")
+
+
+
     def reparameterization(self, mean, var):
         epsilon = torch.randn_like(var).to(self.device)        # sampling epsilon        
         mean[:,5:] += var*epsilon
         # z = mean + var*epsilon                          # reparameterization trick
         return mean
         
-    def forward(self, x):
-        material_pred, latent_z, log_var = self.Encoder(x)
-        
-        z = self.reparameterization(latent_z, torch.exp(0.5 * log_var)) # takes exponential function (log var -> var)
-        #z_combined = torch.cat([material_pred, z], dim=1)
-        x_hat = self.Decoder(z)
+    def reparameterization_NO(self, mean, log_var):
+        # Standard VAE trick but here we assume FNO’s second output is log-variance.
+        std = torch.exp(0.5 * log_var)
+        eps = torch.randn_like(std)
+        return mean + std * eps
 
-        return x_hat, material_pred, log_var    
+    def reparameterization_FreqNO(self, mean, log_var):
+        # Same as above but if you need a separate variant for complex latents.
+        std = torch.exp(0.5 * log_var)
+        eps = torch.randn_like(std)
+        return mean + std * eps
+
+    def forward(self, x):
+        
+        if self.model_type == 'FNO':
+            mean, log_var = self.Encoder(x)
+            z = self.reparameterization_NO(mean, log_var)
+            x_hat = self.Decoder(z)
+            return x_hat, mean, log_var
+        
+        elif self.model_type == 'Freq_FNO':
+            mean, log_var = self.Encoder(x)
+            z = self.reparameterization_FreqNO(mean, log_var) 
+            x_hat = self.Decoder(z)
+            return x_hat, mean, log_var
+        
+        else: 
+            material_pred, latent_z, log_var = self.Encoder(x)
+            z = self.reparameterization(latent_z, torch.exp(0.5 * log_var)) # takes exponential function (log var -> var)
+            #z_combined = torch.cat([material_pred, z], dim=1)
+            x_hat = self.Decoder(z)
+            return x_hat, material_pred, log_var    
     
     @torch.no_grad()
     def generate_by_properties(self, prop_vec, num_samples=1):
@@ -50,6 +125,13 @@ class Model(nn.Module):
         # 3. Concatenate [properties | noise] into full latent vector
         z = torch.cat([p, rest], dim=1)  # shape: [num_samples, latent_dim]
         
+        # If in FNO mode, expand z into a constant field
+        if self.model_type in ('FNO', 'Freq_FNO'):
+            # turn [N, C] -> [N, C, im_x, im_y]
+    
+            z = z.unsqueeze(-1).unsqueeze(-1)            # [N, C, 1, 1] 
+            z = z.repeat(1, 1, self.im_x, self.im_y)     # [N, C, im_x, im_y]
+            
         # 4. Decode through your decoder
         x_hat = self.Decoder(z)          # returns [num_samples, 1, im_x, im_y]
         return x_hat
