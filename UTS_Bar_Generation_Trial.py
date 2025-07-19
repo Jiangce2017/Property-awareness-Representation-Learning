@@ -93,7 +93,7 @@ if __name__ == "__main__":
     build_astm_d638_lattice_by_block(
         img_array  = img8,
         stl_path   = 'astm_by_block.stl',
-        pixel_size = 0.1,
+        pixel_size = 0.05,
         threshold  = 128,
         thickness  = 3.2
     )
