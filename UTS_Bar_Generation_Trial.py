@@ -5,99 +5,91 @@ Created on Tue Jul 15 14:02:56 2025
 @author: joory
 """
 
-import shapely.affinity as affinity
-
-
-import h5py
-import math
-import numpy as np
-import cv2
-from PIL import Image
-import shapely.geometry as geom
 import trimesh
+import shapely.geometry as geom
+import shapely.affinity as affinity
+import numpy as np
 import os
-        
-def build_astm_d638_lattice_by_block(
-    img_array: np.ndarray,
-    stl_path:   str,
-    pixel_size: float = 0.1,
-    threshold:  int   = 128,
-    thickness:  float = 3.2
+import numpy as np
+import cv2                     # ← add this
+import trimesh
+import shapely.geometry as geom
+import shapely.affinity as affinity
+from PIL import Image
+
+
+def build_astm_by_block_with_solid_ends(
+    binary_img:   np.ndarray,  # 50×50 array, 0 or 255
+    stl_path:     str,
+    block_size:   float = 1.0,   # mm: the width/height of one block
+    thickness:    float = 3.2
 ):
-    # 1) make sure img_array is uint8
-    arr = img_array
-    if arr.dtype != np.uint8:
-        arr = ((arr - arr.min())/(arr.max()-arr.min())*255).astype(np.uint8)
+    """
+    Tile whole-block shapes across the gauge region, then add solid grips.
+    """
+    # ASTM Type I dims
+    L_total, W_end, L_gauge, W_gauge = 165.0, 19.0, 50.0, 13.0
+    grip_len = (L_total - L_gauge)/2.0
+    half_th  = thickness/2.0
 
-    H, W = arr.shape
-    block_w_mm = W * pixel_size
-    block_h_mm = H * pixel_size
-
-    # 2) extract the single-block polygon in mm
-    mask = (arr > threshold).astype(np.uint8)
+    # 1) Extract one “block” polygon from your binary image
+    #    (same as before in build_astm_d638_lattice_by_block)
+    mask = (binary_img > 128).astype(np.uint8)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    base_polys = []
+    block_polys = []
     for cnt in contours:
-        pts = cnt.squeeze() * pixel_size
+        pts = cnt.squeeze() * (block_size / 50.0)  # scale 50px→block_size
         if len(pts) < 3: continue
-        base_polys.append(geom.Polygon(pts))
-    block_poly = geom.GeometryCollection(base_polys).buffer(0)
+        block_polys.append(geom.Polygon(pts))
+    block_shape = geom.GeometryCollection(block_polys).buffer(0)
 
-    # 3) build ASTM bar footprint in mm
-    L, We, Lg, Wg = 165, 19, 50, 13
-    end1 = geom.box(0, 0, (L - Lg)/2, We)
-    mid  = geom.box((L - Lg)/2, (We - Wg)/2, (L + Lg)/2, (We + Wg)/2)
-    end2 = geom.box((L + Lg)/2, 0, L, We)
-    bar_poly = end1.union(mid).union(end2)
+    # 2) How many whole blocks fit across gauge
+    nx = int(np.floor(L_gauge   / block_size))    
+    ny = int(np.floor(W_gauge   / block_size))
+    # gauge region sits in the middle of the 19 mm height
+    gauge_y0 = (W_end - W_gauge)/2.0
+    # center the discrete rows inside that 13 mm band
+    y_off    = gauge_y0 + (W_gauge - ny*block_size)/2.0
 
-    # 4) how many whole blocks fit in X & Y
-    nx = int(math.floor(L  / block_w_mm))
-    ny = int(math.floor(We / block_h_mm))
-    
-    y_offset = (We - ny*block_h_mm) / 2.0
-    
-    # 5) place & extrude only blocks fully inside bar_poly
+
     meshes = []
+    # 3) Tile blocks in gauge only
     for i in range(nx):
         for j in range(ny):
-            tx = i * block_w_mm
-            ty = j * block_h_mm + y_offset
-            footprint = affinity.translate(
-                geom.box(0, 0, block_w_mm, block_h_mm),
-                xoff=tx, yoff=ty
-            )
-            if not bar_poly.contains(footprint):
-                continue
-            moved = affinity.translate(block_poly, xoff=tx, yoff=ty)
-            mesh  = trimesh.creation.extrude_polygon(moved, thickness, engine="triangle")
+            # footprint in mm
+            tx = grip_len + i*block_size
+            ty = j*block_size + y_off
+            block_pos = affinity.translate(block_shape, xoff=tx, yoff=ty)
+            mesh = trimesh.creation.extrude_polygon(block_pos, thickness, engine="triangle")
             meshes.append(mesh)
 
-    # 6) combine & export
-    combined = trimesh.util.concatenate(meshes)
-    combined.export(stl_path)
-    print(f" Exported by-block ASTMD638 lattice → {stl_path}")
+    # 4) Solid grips
+    left  = trimesh.creation.box(extents=(grip_len, W_end, thickness))
+    right = trimesh.creation.box(extents=(grip_len, W_end, thickness))
+    left.apply_translation((grip_len/2,       W_end/2, half_th))
+    right.apply_translation((grip_len + L_gauge + grip_len/2, W_end/2, half_th))
+    meshes.extend([left, right])
+
+    # 5) Combine & export
+    final = trimesh.util.concatenate(meshes)
+    final.export(stl_path)
+    
+    print(f" Exported lattice‐in‐middle bar → {stl_path}")
+        
 
 if __name__ == "__main__":
-    # # load one sample from ShapeSpace.mat
-    # mat_path = r"C:\Users\Joory\Property-awareness-Representation-Learning\datasets\Wang\ShapeSpace.mat"
 
-    # with h5py.File(mat_path, 'r') as f:
-    #     data   = f['ShapeSpace']            # shape (N,50,50)
-    #     sample = data[0, :, :]              # pick index 0
+    # 1) load your binary lattice image
+    img    = Image.open("vae_output_binary.png").convert("L")
+    binary = np.array(img)  # 50×50, 0 or 255
 
-    # # save PNG for inspection (optional)
-    # img8 = ((sample - sample.min())/(sample.max()-sample.min())*255).astype(np.uint8)
-    # Image.fromarray(img8).save('astm_sample.png')
-    
-    # Load Generated VAE Output Image
-    img = Image.open("vae_output.png").convert("L")
-    img8 = np.array(img)                                # This is the 50 x 50 unit8 array
-    
-    # build & export
-    build_astm_d638_lattice_by_block(
-        img_array  = img8,
-        stl_path   = 'astm_by_block.stl',
-        pixel_size = 0.05,
-        threshold  = 128,
+    # 2) choose block size = gauge_length / 50 px = 1 mm
+    block_size = 50.0 / 50   # =1.0 mm
+
+    # 3) build and export
+    build_astm_by_block_with_solid_ends(
+        binary_img = binary,
+        stl_path   = "bar_by_block_solid_ends.stl",
+        block_size = block_size,
         thickness  = 3.2
     )
