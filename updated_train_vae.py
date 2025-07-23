@@ -12,8 +12,10 @@ from torch.optim import Adam
 import matplotlib.pyplot as plt
 
 import torch.nn.utils as nn_utils
+import cv2
 
 from utils_FNO import loss_function as fno_loss
+from PIL import Image
 
 from sklearn.model_selection import train_test_split
 from updated_models_vae import Model
@@ -44,7 +46,7 @@ if __name__ == '__main__':
     hidden_dim = 64
     latent_dim = 32
     lr = 1e-4
-    epochs = 20
+    epochs = 80
     mnist_transform = transforms.Compose([
             transforms.ToTensor(),
     ])
@@ -194,9 +196,44 @@ if __name__ == '__main__':
         desired_props = [0.5, 0.3, 0.7, 0.2, 0.6]
         # generate 4 samples
         samples = model.generate_by_properties(desired_props, num_samples=4)
-        # display them
-        for i, img in enumerate(samples):
-            show_image(img.squeeze().view(im_x, im_y))
+        
+        # for i, img in enumerate(samples):
+        #     show_image(img.squeeze().view(im_x, im_y))
+        
+        # take the first one, convert to numpy [0,1], then to uint8 [0,255]
+        vae_output = samples[0].squeeze().detach().cpu().numpy()
+        vae_output = np.clip(vae_output, 0, 1)
+        
+        # save it
+        img_uint8   = (vae_output * 255).astype(np.uint8)
+        Image.fromarray(img_uint8).save("vae_output.png")
+        print(" VAE output saved as vae_output.png")
+
+        print("Reconstruction min/max:", vae_output.min(), vae_output.max())
+        
+        # Auto Threshold with Otsu
+        img8 = (vae_output * 255).astype(np.uint8)
+        _, binary = cv2.threshold(img8, 0, 255,
+                          cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        Image.fromarray(binary).save("vae_output_binary.png")
+        print(" Saved binary lattice as vae_output_binary.png (Otsu threshold)")
+
+
+                
+        # threshold_value = 0.5
+        # binary = (vae_output > threshold_value).astype(np.uint8) * 255
+        # Image.fromarray(binary).save("vae_output_binary.png")
+
+        # print(" VAE output saved as vae_output.png")
+
+        # display 
+        # show_image(torch.tensor(vae_output).view(im_x, im_y))
+        
+        plt.figure(figsize=(4,4))
+        plt.imshow(binary, cmap="gray", vmin=0, vmax=255)
+        plt.axis("off")
+        plt.show()
 
 
     else:

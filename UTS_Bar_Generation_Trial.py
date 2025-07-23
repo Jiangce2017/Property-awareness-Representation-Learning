@@ -78,17 +78,21 @@ def build_astm_d638_lattice_by_block(
     print(f" Exported by-block ASTMD638 lattice → {stl_path}")
 
 if __name__ == "__main__":
-    # load one sample from ShapeSpace.mat
-    mat_path = r"C:\Users\Joory\Property-awareness-Representation-Learning\datasets\Wang\ShapeSpace.mat"
+    # # load one sample from ShapeSpace.mat
+    # mat_path = r"C:\Users\Joory\Property-awareness-Representation-Learning\datasets\Wang\ShapeSpace.mat"
 
-    with h5py.File(mat_path, 'r') as f:
-        data   = f['ShapeSpace']            # shape (N,50,50)
-        sample = data[0, :, :]              # pick index 0
+    # with h5py.File(mat_path, 'r') as f:
+    #     data   = f['ShapeSpace']            # shape (N,50,50)
+    #     sample = data[0, :, :]              # pick index 0
 
-    # save PNG for inspection (optional)
-    img8 = ((sample - sample.min())/(sample.max()-sample.min())*255).astype(np.uint8)
-    Image.fromarray(img8).save('astm_sample.png')
-
+    # # save PNG for inspection (optional)
+    # img8 = ((sample - sample.min())/(sample.max()-sample.min())*255).astype(np.uint8)
+    # Image.fromarray(img8).save('astm_sample.png')
+    
+    # Load Generated VAE Output Image
+    img = Image.open("vae_output.png").convert("L")
+    img8 = np.array(img)                                # This is the 50 x 50 unit8 array
+    
     # build & export
     build_astm_d638_lattice_by_block(
         img_array  = img8,
