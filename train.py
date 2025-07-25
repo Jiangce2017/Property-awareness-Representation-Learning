@@ -123,7 +123,7 @@ if __name__ == '__main__':
     print("Start training VAE...")
     print(f" Training for {epochs} epochs with batch size {batch_size}…")
     for epoch in range(epochs):
-        overall_loss, rep_loss, pred_loss, m_loss, v_loss = train_model(train_loader,model,device,optimizer,x_dim,model_type,num_properties)
+        overall_loss, rep_loss, pred_loss, v_loss, m_loss = train_model(train_loader,model,device,optimizer,x_dim,model_type,num_properties)
         print("\tEpoch", epoch + 1, "complete!", "\tAverage Train Loss: ", overall_loss)
         train_logger.log({
         'ep': epoch,             
@@ -135,7 +135,7 @@ if __name__ == '__main__':
         })
         if epoch % 10 == 0:
             torch.save(model, model_file)
-            overall_loss, rep_loss, pred_loss, m_loss, v_loss = test_model(test_loader, model,device,x_dim,model_type,num_properties)
+            overall_loss, rep_loss, pred_loss, v_loss, m_loss = test_model(test_loader, model,device,x_dim,model_type,num_properties)
             print("\tEpoch", epoch + 1, "complete!", "\tAverage Test Loss: ", overall_loss)
             test_logger.log({
             'ep': epoch,             
