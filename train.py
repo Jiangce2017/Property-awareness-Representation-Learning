@@ -12,30 +12,45 @@ from sklearn.model_selection import train_test_split
 from models import Model
 from utils import CombinedDataset,loss_function, load_mat, show_image, train_model, test_model,Logger
 
-
-
-
-warmup_epochs = 10         # number of epochs to ramp KL-weight up
-kl_max_weight = 1.0        # final weight of KL term
-
-
 if __name__ == '__main__':
-    cuda = False
+    cuda = True
     device = torch.device("cuda" if cuda else "cpu")
     im_x = 50
     im_y = 50 
-    model_type = 'FNO'
-    dataset_path = './datasets/Wang/ShapeSpace.mat'
-    property_path = './datasets/Wang/PropertySpace.mat'
-    batch_size = 16
+    model_type = 'Freq_FNO'
+    dataset_root_dir = '/scratch/jc14407/datasets'
+    dataset_path = osp.join(dataset_root_dir, 'Wang/ShapeSpace.mat')
+    property_path = osp.join(dataset_root_dir, 'Wang/PropertySpace.mat')
+    if not osp.exists(dataset_path):
+        print("Dataset not found at", dataset_path)
+        exit(1)
+    if not osp.exists(property_path):
+        print("Property dataset not found at", property_path)
+        exit(1)
+
+    
+    checkpoints_dir = 'checkpoints'
+    if not osp.exists(checkpoints_dir):
+        os.makedirs(checkpoints_dir)
+    model_file = osp.join(checkpoints_dir,model_type+"_model.pth")    
+    
+    results_dir = './results'
+    if not osp.exists(results_dir):
+        os.makedirs(results_dir)
+    
+    batch_size = 64
     x_dim  = 2500
     hidden_dim = 64
-    latent_dim = 32
+    latent_dim = 64
     num_properties = 5  # Number of properties in the dataset
     lr = 1e-4
-    epochs = 80
-    results_dir = './results'
-    model_file = osp.join("checkpoints",model_type+"_model.pth")
+    epochs = 100 
+    if model_type == 'FNO' or model_type == 'Freq_FNO':
+        modes1 = 10
+        modes2 = 6
+    else:
+        modes1 = 0
+        modes2 = 0
     ## setup logger
     train_logger = Logger(
         osp.join(results_dir, model_type+'_train.log'),
@@ -67,20 +82,7 @@ if __name__ == '__main__':
     dataset = CombinedDataset(X,y)
 
     print("dataset shape:{}".format(len(dataset)))
-    
-    from torch.utils.data import Subset
-    
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.1, random_state=42)
-    
-    # ── ADD THESE LINES FOR A SMALL DEBUG SUBSET 
-    debug_n = 200
-    train_dataset = Subset(train_dataset, list(range(debug_n)))
-    print(f"  Debug mode: training on only {debug_n} samples "  f"→ {len(train_dataset)/batch_size:.0f} batches/epoch")
-
-    debug_n = 20
-    test_dataset = Subset(test_dataset, list(range(debug_n)))
-    print(f"  Debug mode: testing on only {debug_n} samples "  f"→ {len(test_dataset)/batch_size:.0f} batches/epoch")
-
 
     train_loader = DataLoader(
         dataset = train_dataset,
@@ -101,8 +103,13 @@ if __name__ == '__main__':
     print("PropertySpace min:", y.min(), "max:", y.max())
     
     print("train_loader shape: {}".format(len(train_loader)))
-
-    model = Model(num_properties,x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y, modes1=10, modes2=6).to(device)
+    if osp.exists(model_file):
+        print("Loading model from", model_file)
+        model = torch.load(model_file, map_location=device)
+    else:
+        print("Creating new model...")
+        # Initialize the model
+        model = Model(num_properties,x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y, modes1=modes1, modes2=modes2).to(device)
     print("Model created with type:", model_type)
     optimizer = Adam(model.parameters(), lr=lr)
     # New Scheduler to reduce loss 

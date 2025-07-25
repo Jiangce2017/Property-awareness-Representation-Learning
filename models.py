@@ -171,7 +171,6 @@ class CNN_Decoder(nn.Module):
         self.conv2 = nn.Conv2d(hidden_dim, 1, kernel_size=(3, 3), stride=1, padding=1)
 
         self.LeakyReLU = nn.LeakyReLU(0.2)
-        self.sigmoid = nn.Sigmoid()
         self.hidden_dim = hidden_dim
         self.im_x = im_x
         self.im_y = im_y
@@ -182,7 +181,7 @@ class CNN_Decoder(nn.Module):
         h = h.view(-1,self.hidden_dim*2,self.im_x//2,self.im_y//2)
         h = self.upsample(h)
         h = self.LeakyReLU(self.conv1(h))
-        x_hat = self.sigmoid(self.conv2(h))
+        x_hat = torch.sigmoid(self.conv2(h))
         return x_hat    
 
 class FNO_Encoder(nn.Module):
@@ -381,7 +380,7 @@ class FreqFNO_Decoder(nn.Module):
         x2 = self.w3(x)
         x = x1 + x2
         x = self.q(x)
-        x = F.sigmoid(x)
+        x = torch.sigmoid(x)
         x = x.permute(0, 2, 3, 1)
         return x
 
