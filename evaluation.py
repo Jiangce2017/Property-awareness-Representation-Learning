@@ -24,7 +24,7 @@ if __name__ == '__main__':
     num_properties = 5  # Number of properties in the dataset
     modes1 = 10
     modes2 = 6
-    model_type = 'FNO'
+    model_type = 'Freq_FNO'
     dataset_path = './datasets/Wang/ShapeSpace.mat'
     property_path = './datasets/Wang/PropertySpace.mat'
     results_dir = './results'
@@ -32,7 +32,7 @@ if __name__ == '__main__':
     batch_size = 64
     x_dim  = 2500
     hidden_dim = 64
-    latent_dim = 32
+    latent_dim = 64
     lr = 1e-3
     epochs = 1000
 
@@ -92,7 +92,9 @@ if __name__ == '__main__':
     print("train_loader shape: {}".format(len(train_loader)))
         
     model_file = osp.join("checkpoints","save_"+model_type+"_model.pth")
-    loaded_model = torch.load(model_file)
+    loaded_model = torch.load(model_file,map_location=torch.device('cpu'))
+    loaded_model.device = device
+    loaded_model.to(device)
     loaded_model.eval()
     with torch.no_grad():
         for batch_idx, (input, y_true) in enumerate(tqdm(train_loader)):
@@ -135,44 +137,12 @@ if __name__ == '__main__':
     # generate 4 samples
     samples = loaded_model.generate_by_properties(desired_props, num_samples=4)
     
-    # for i, img in enumerate(samples):
-    #     show_image(img.squeeze().view(im_x, im_y))
-    
-    # take the first one, convert to numpy [0,1], then to uint8 [0,255]
     vae_output = samples[0].squeeze().detach().cpu().numpy()
     vae_output = np.clip(vae_output, 0, 1)
     show_image(vae_output.reshape(50,50))
     
-    # # save it
-    # img_uint8   = (vae_output * 255).astype(np.uint8)
-    # Image.fromarray(img_uint8).save("vae_output.png")
-    # print(" VAE output saved as vae_output.png")
-
     print("Reconstruction min/max:", vae_output.min(), vae_output.max())
     
-    # # Auto Threshold with Otsu
-    # img8 = (vae_output * 255).astype(np.uint8)
-    # _, binary = cv2.threshold(img8, 0, 255,
-    #                     cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # Image.fromarray(binary).save("vae_output_binary.png")
-    # print(" Saved binary lattice as vae_output_binary.png (Otsu threshold)")
-
-
-            
-    # threshold_value = 0.5
-    # binary = (vae_output > threshold_value).astype(np.uint8) * 255
-    # Image.fromarray(binary).save("vae_output_binary.png")
-
-    # print(" VAE output saved as vae_output.png")
-
-    # display 
-    # show_image(torch.tensor(vae_output).view(im_x, im_y))
-    
-    plt.figure(figsize=(4,4))
-    plt.imshow(binary, cmap="gray", vmin=0, vmax=255)
-    plt.axis("off")
-    plt.show()
 
     
 

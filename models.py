@@ -86,8 +86,16 @@ class Model(nn.Module):
         if self.model_type in ('FNO', 'Freq_FNO'):
             # turn [N, C] -> [N, C, im_x, im_y]
     
-            z = z.unsqueeze(-1).unsqueeze(-1)            # [N, C, 1, 1] 
-            z = z.repeat(1, 1, self.im_x, self.im_y)     # [N, C, im_x, im_y]
+            if self.model_type == 'Freq_FNO':
+                z = z.unsqueeze(-1).unsqueeze(-1)            # [N, C, 1, 1] 
+                z = z.repeat(1, 1, self.modes1, self.modes2)
+                # For Freq_FNO, we need to split the latent vector into real and imaginary parts
+                z_real = z[:,:self.latent_dim//2,:,:]
+                z_image = z[:,self.latent_dim//2:,:,:]
+                z = torch.complex(z_real, z_image)
+            else:
+                z = z.unsqueeze(-1).unsqueeze(-1)            # [N, C, 1, 1] 
+                z = z.repeat(1, 1, self.im_x, self.im_y)     # [N, C, im_x, im_y]
             
         # 4. Decode through your decoder
         x_hat = self.Decoder(z)          # returns [num_samples, 1, im_x, im_y]
@@ -171,7 +179,6 @@ class CNN_Decoder(nn.Module):
         self.conv2 = nn.Conv2d(hidden_dim, 1, kernel_size=(3, 3), stride=1, padding=1)
 
         self.LeakyReLU = nn.LeakyReLU(0.2)
-        self.sigmoid = nn.Sigmoid()
         self.hidden_dim = hidden_dim
         self.im_x = im_x
         self.im_y = im_y
@@ -182,7 +189,7 @@ class CNN_Decoder(nn.Module):
         h = h.view(-1,self.hidden_dim*2,self.im_x//2,self.im_y//2)
         h = self.upsample(h)
         h = self.LeakyReLU(self.conv1(h))
-        x_hat = self.sigmoid(self.conv2(h))
+        x_hat = torch.sigmoid(self.conv2(h))
         return x_hat    
 
 class FNO_Encoder(nn.Module):
@@ -381,7 +388,7 @@ class FreqFNO_Decoder(nn.Module):
         x2 = self.w3(x)
         x = x1 + x2
         x = self.q(x)
-        x = F.sigmoid(x)
+        x = torch.sigmoid(x)
         x = x.permute(0, 2, 3, 1)
         return x
 
