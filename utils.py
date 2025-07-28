@@ -112,6 +112,16 @@ def show_image(x):
         plt.imshow(x,cmap=cmap)
         plt.show()
 
+def show_image_group(x,titles=None):
+        fig, axs = plt.subplots(1, len(x), figsize=(4 * len(x), 4))
+        for i, ax in enumerate(axs):
+            ax.imshow(x[i], cmap='Greens')
+            ax.axis('off')
+            if titles is not None:
+                ax.set_title(titles[i])
+        plt.tight_layout()
+        plt.show()
+
 def plot_ternary(simplex_points,loaded_model,im_x, im_y,latent_dim, output_file):
     #simplex_points = mean[:3,:]
     n_side = 10

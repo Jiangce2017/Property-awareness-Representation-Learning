@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 
 from models import Model
-from utils import loss_function, load_mat, show_image, CombinedDataset,Logger,plot_ternary
+from utils import loss_function, load_mat, show_image, CombinedDataset, show_image_group
 
 if __name__ == '__main__':
     torch.manual_seed(42)
@@ -62,16 +62,6 @@ if __name__ == '__main__':
     
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.1, random_state=42)
     
-    # # ── ADD THESE LINES FOR A SMALL DEBUG SUBSET 
-    # debug_n = 200
-    # train_dataset = Subset(train_dataset, list(range(debug_n)))
-    # print(f"  Debug mode: training on only {debug_n} samples "  f"→ {len(train_dataset)/batch_size:.0f} batches/epoch")
-
-    # debug_n = 20
-    # test_dataset = Subset(test_dataset, list(range(debug_n)))
-    # print(f"  Debug mode: testing on only {debug_n} samples "  f"→ {len(test_dataset)/batch_size:.0f} batches/epoch")
-
-
     train_loader = DataLoader(
         dataset = train_dataset,
         batch_size = batch_size,
@@ -110,13 +100,15 @@ if __name__ == '__main__':
     print("reproduction_loss: {}, prediction_loss: {}".format(reproduction_loss.item(), prediction_loss.item()))
     print("loss: {}".format(loss.item()))
     pred = F.sigmoid(pred)
-    show_image(input[0].cpu().detach().numpy().reshape(im_x,im_y))
-    show_image(pred[0].cpu().detach().numpy().reshape(im_x,im_y))
-
+    x_hat_list = []
+    titles = []
+    x_hat_list.append(input[0].cpu().detach().numpy().reshape(im_x,im_y))
+    titles.append("Input Image")
+    x_hat_list.append(pred[0].cpu().detach().numpy().reshape(im_x,im_y))   
+    titles.append("Predicted Image")
 
     latent_vector = mean[[0]]
 
-    
     if model_type == 'Freq_FNO':
         z = loaded_model.reparameterization_FreqNO(mean, log_var)
         print("z[0,0,0] :{}".format(z[0,0,0]))
@@ -131,9 +123,8 @@ if __name__ == '__main__':
         z = torch.complex(z_real, z_image)
         print("z[0,0,0] :{}".format(z[0,0,0]))
         x_hat = loaded_model.Decoder(z,50,50)
-
-        print("x_hat shape:{}".format(x_hat.shape))
-        show_image(x_hat[0].cpu().detach().numpy().reshape(50,50))
+        x_hat_list.append(x_hat[0].cpu().detach().numpy().reshape(im_x,im_y))
+        titles.append("Reconstructed Image")
     elif model_type == 'FNO':
         latent_vector = torch.tile(latent_vector,(1,1,50,50))
         x_hat = loaded_model.Decoder(latent_vector)
@@ -143,7 +134,6 @@ if __name__ == '__main__':
         show_image(x_hat.cpu().detach().numpy().reshape(50,50))    
     plt.close('all')
 
-    ## randomly generate a lattice inside the batch simplex
     mean_sq = mean.squeeze()
     property_tunning = True
     if property_tunning:
@@ -163,34 +153,17 @@ if __name__ == '__main__':
         ## generate one middle point in inside the simplex
         t = torch.softmax(torch.randn(1, mean_sq.shape[0]),dim=1)
         print("check sigmax t: {}".format(torch.sum(t)))
-        # t = torch.ones((1, mean_sq.shape[0]),dtype=torch.float32)*(1/64)
         middle_p = torch.einsum('ik,kj->ij',t,mean_sq)
         print("middle_p shape: {}".format(middle_p.shape))
         middle_p = middle_p[:,:, None, None]
     var = 3e-5* torch.ones_like(middle_p)
     middle_z = loaded_model.reparameterization_FreqNO(middle_p, var)
-    # epsilon_real = torch.randn(middle_p.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,:latent_dim//2,:,:]) 
-    # z_real = middle_p[:,:latent_dim//2,:,:] + epsilon_real
-    # epsilon_image = torch.randn(middle_p.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,latent_dim//2:,:,:])
-    # z_image = middle_p[:,latent_dim//2:,:,:] + epsilon_image
-    # middle_z = torch.complex(z_real, z_image)
     x_hat = loaded_model.Decoder(middle_z)
-    show_image(x_hat.cpu().detach().numpy().reshape(50,50))
 
-    #     # switch to eval mode
-    # # choose a property vector within your printed ranges:
-    # desired_props = [0.5, 0.3, 0.7, 0.2, 0.6]
-    # # generate 4 samples
-    # samples = loaded_model.generate_by_properties(desired_props, num_samples=4)
-    
-    # vae_output = samples[0].squeeze().detach().cpu().numpy()
-    # vae_output = np.clip(vae_output, 0, 1)
-    # show_image(vae_output.reshape(50,50))
-    
-    # print("Reconstruction min/max:", vae_output.min(), vae_output.max())
-    
+    x_hat_list.append(x_hat.cpu().detach().numpy().reshape(im_x,im_y))
+    titles.append("Property Adjusted Image")
+    show_image_group(x_hat_list,titles)
 
-    
 
 
 
