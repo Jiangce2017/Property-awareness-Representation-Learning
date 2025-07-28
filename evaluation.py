@@ -17,6 +17,7 @@ from models import Model
 from utils import loss_function, load_mat, show_image, CombinedDataset,Logger,plot_ternary
 
 if __name__ == '__main__':
+    torch.manual_seed(42)
     cuda = False
     device = torch.device("cuda" if cuda else "cpu")
     im_x = 50
@@ -28,11 +29,11 @@ if __name__ == '__main__':
     dataset_path = './datasets/Wang/ShapeSpace.mat'
     property_path = './datasets/Wang/PropertySpace.mat'
     results_dir = './results'
-    model_file = osp.join("checkpoints",model_type+"_model.pth")
+    model_file = osp.join("checkpoints","gpu_"+model_type+"_32_64_model.pth")
     batch_size = 64
     x_dim  = 2500
     hidden_dim = 64
-    latent_dim = 64
+    latent_dim = 32
     lr = 1e-3
     epochs = 1000
 
@@ -61,14 +62,14 @@ if __name__ == '__main__':
     
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.1, random_state=42)
     
-    # ── ADD THESE LINES FOR A SMALL DEBUG SUBSET 
-    debug_n = 200
-    train_dataset = Subset(train_dataset, list(range(debug_n)))
-    print(f"  Debug mode: training on only {debug_n} samples "  f"→ {len(train_dataset)/batch_size:.0f} batches/epoch")
+    # # ── ADD THESE LINES FOR A SMALL DEBUG SUBSET 
+    # debug_n = 200
+    # train_dataset = Subset(train_dataset, list(range(debug_n)))
+    # print(f"  Debug mode: training on only {debug_n} samples "  f"→ {len(train_dataset)/batch_size:.0f} batches/epoch")
 
-    debug_n = 20
-    test_dataset = Subset(test_dataset, list(range(debug_n)))
-    print(f"  Debug mode: testing on only {debug_n} samples "  f"→ {len(test_dataset)/batch_size:.0f} batches/epoch")
+    # debug_n = 20
+    # test_dataset = Subset(test_dataset, list(range(debug_n)))
+    # print(f"  Debug mode: testing on only {debug_n} samples "  f"→ {len(test_dataset)/batch_size:.0f} batches/epoch")
 
 
     train_loader = DataLoader(
@@ -91,23 +92,23 @@ if __name__ == '__main__':
     
     print("train_loader shape: {}".format(len(train_loader)))
         
-    model_file = osp.join("checkpoints","save_"+model_type+"_model.pth")
+    model_file = osp.join("checkpoints","well_trained2_"+model_type+"_model.pth")
     loaded_model = torch.load(model_file,map_location=torch.device('cpu'))
     loaded_model.device = device
     loaded_model.to(device)
     loaded_model.eval()
-    with torch.no_grad():
-        for batch_idx, (input, y_true) in enumerate(tqdm(train_loader)):
 
-            input = input.to(device)
-            y_true = y_true.float()
-            y_true = y_true.to(device)
+    it = iter(train_loader)
+    (input, y_true) = next(it)
+    input = input.to(device)
+    y_true = y_true.float()
+    y_true = y_true.to(device)
 
-            pred, mean, log_var = loaded_model(input)
-            loss, *_ = loss_function(input.view(-1,x_dim), pred.view(-1,x_dim),y_true, mean, log_var,model_type,num_properties)
-            print("loss: {}".format(loss.item()))
-            break
-    
+    pred, mean, log_var = loaded_model(input)
+    loss, reproduction_loss,prediction_loss, var_loss, mean_range = loss_function(input.view(-1,x_dim), pred.view(-1,x_dim),y_true, mean, log_var,model_type,num_properties)
+    print("var_loss: {}, mean_range: {}".format(var_loss.item(), mean_range.item()))
+    print("reproduction_loss: {}, prediction_loss: {}".format(reproduction_loss.item(), prediction_loss.item()))
+    print("loss: {}".format(loss.item()))
     pred = F.sigmoid(pred)
     show_image(input[0].cpu().detach().numpy().reshape(im_x,im_y))
     show_image(pred[0].cpu().detach().numpy().reshape(im_x,im_y))
@@ -117,31 +118,76 @@ if __name__ == '__main__':
 
     
     if model_type == 'Freq_FNO':
-        real_latent_vector = latent_vector[:,:latent_dim//2,:,:]
-        image_latent_vector = latent_vector[:,latent_dim//2:,:,:]
-        latent_vector = torch.complex(real_latent_vector, image_latent_vector)
+        z = loaded_model.reparameterization_FreqNO(mean, log_var)
+        print("z[0,0,0] :{}".format(z[0,0,0]))
+        torch.manual_seed(123)
 
-        latent_vector = torch.tile(latent_vector,(1,1,10,6))
-        print("latent_vector shape:{}".format(latent_vector.shape))
-        x_hat = loaded_model.Decoder(latent_vector,60,60)
-        show_image(x_hat.cpu().detach().numpy().reshape(60,60))
-    else:
+        var = 3e-5* torch.ones_like(log_var)
+        print("var: {}".format(torch.max(var)))
+        epsilon_real = torch.randn(mean.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,:latent_dim//2,:,:]) 
+        z_real = mean[:,:latent_dim//2,:,:] + epsilon_real
+        epsilon_image = torch.randn(mean.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,latent_dim//2:,:,:])
+        z_image = mean[:,latent_dim//2:,:,:] + epsilon_image
+        z = torch.complex(z_real, z_image)
+        print("z[0,0,0] :{}".format(z[0,0,0]))
+        x_hat = loaded_model.Decoder(z,50,50)
+
+        print("x_hat shape:{}".format(x_hat.shape))
+        show_image(x_hat[0].cpu().detach().numpy().reshape(50,50))
+    elif model_type == 'FNO':
         latent_vector = torch.tile(latent_vector,(1,1,50,50))
         x_hat = loaded_model.Decoder(latent_vector)
         show_image(x_hat.cpu().detach().numpy().reshape(50,50))
-    plt.close('all') 
+    else:
+        x_hat = loaded_model.Decoder(latent_vector)
+        show_image(x_hat.cpu().detach().numpy().reshape(50,50))    
+    plt.close('all')
 
-        # switch to eval mode
-    # choose a property vector within your printed ranges:
-    desired_props = [0.5, 0.3, 0.7, 0.2, 0.6]
-    # generate 4 samples
-    samples = loaded_model.generate_by_properties(desired_props, num_samples=4)
+    ## randomly generate a lattice inside the batch simplex
+    mean_sq = mean.squeeze()
+    property_tunning = True
+    if property_tunning:
+        print("Properties: {}".format(mean_sq[0,:5]))
+        mean_sq[0,0] += 0.2
+        middle_p = mean_sq[0,:]
+        middle_p = middle_p[None,:, None, None]
+    else:
+        ## print the range of the five proerties
+        print("mean shape: {}".format(mean_sq.shape))
+        print("min p0: {}, max p0: {}".format(torch.min(mean_sq[:,0]),torch.max(mean_sq[:,0])))
+        print("min p1: {}, max p1: {}".format(torch.min(mean_sq[:,1]),torch.max(mean_sq[:,1])))
+        print("min p2: {}, max p2: {}".format(torch.min(mean_sq[:,2]),torch.max(mean_sq[:,2])))
+        print("min p3: {}, max p3: {}".format(torch.min(mean_sq[:,3]),torch.max(mean_sq[:,3])))
+        print("min p4: {}, max p4: {}".format(torch.min(mean_sq[:,4]),torch.max(mean_sq[:,4])))
+
+        ## generate one middle point in inside the simplex
+        t = torch.softmax(torch.randn(1, mean_sq.shape[0]),dim=1)
+        print("check sigmax t: {}".format(torch.sum(t)))
+        # t = torch.ones((1, mean_sq.shape[0]),dtype=torch.float32)*(1/64)
+        middle_p = torch.einsum('ik,kj->ij',t,mean_sq)
+        print("middle_p shape: {}".format(middle_p.shape))
+        middle_p = middle_p[:,:, None, None]
+    var = 3e-5* torch.ones_like(middle_p)
+    middle_z = loaded_model.reparameterization_FreqNO(middle_p, var)
+    # epsilon_real = torch.randn(middle_p.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,:latent_dim//2,:,:]) 
+    # z_real = middle_p[:,:latent_dim//2,:,:] + epsilon_real
+    # epsilon_image = torch.randn(middle_p.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,latent_dim//2:,:,:])
+    # z_image = middle_p[:,latent_dim//2:,:,:] + epsilon_image
+    # middle_z = torch.complex(z_real, z_image)
+    x_hat = loaded_model.Decoder(middle_z)
+    show_image(x_hat.cpu().detach().numpy().reshape(50,50))
+
+    #     # switch to eval mode
+    # # choose a property vector within your printed ranges:
+    # desired_props = [0.5, 0.3, 0.7, 0.2, 0.6]
+    # # generate 4 samples
+    # samples = loaded_model.generate_by_properties(desired_props, num_samples=4)
     
-    vae_output = samples[0].squeeze().detach().cpu().numpy()
-    vae_output = np.clip(vae_output, 0, 1)
-    show_image(vae_output.reshape(50,50))
+    # vae_output = samples[0].squeeze().detach().cpu().numpy()
+    # vae_output = np.clip(vae_output, 0, 1)
+    # show_image(vae_output.reshape(50,50))
     
-    print("Reconstruction min/max:", vae_output.min(), vae_output.max())
+    # print("Reconstruction min/max:", vae_output.min(), vae_output.max())
     
 
     

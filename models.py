@@ -29,7 +29,7 @@ class Model(nn.Module):
             self.Decoder = FreqFNO_Decoder(latent_dim=latent_dim//2, hidden_dim = hidden_dim, output_dim = x_dim,im_x=im_x, im_y=im_y,modes1=10,modes2=6)
     def reparameterization(self, mean, var):
         epsilon = torch.randn_like(var).to(self.device)
-        mean[:,:self.num_properties] = mean[:,:self.num_properties] + var*epsilon
+        mean[:,self.num_properties:] = mean[:,self.num_properties:] + var*epsilon
         z = mean                    
         return z
 
@@ -78,7 +78,7 @@ class Model(nn.Module):
         # 2. Sample the remaining latent dims from N(0,1)
         rest = torch.randn(num_samples,
                            self.latent_dim - self.num_properties,
-                           device=self.device)
+                           device=self.device)-0.5
         # 3. Concatenate [properties | noise] into full latent vector
         z = torch.cat([p, rest], dim=1)  # shape: [num_samples, latent_dim]
         

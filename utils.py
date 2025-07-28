@@ -8,15 +8,15 @@ from tqdm import tqdm
 
 def loss_function(x, x_hat,y_true, mean, log_var,model_type,num_properties):
     reproduction_loss = nn.functional.binary_cross_entropy(x_hat,x, reduction='mean')
-    KLD = - 0.5 * torch.mean(1+ log_var - mean.pow(2) - log_var.exp())
     var_loss = torch.mean(torch.exp(log_var))
-    mean_loss = 1/(1+torch.exp(-16*(torch.max(mean.pow(2))-1)))
+    mean_loss = 1/(1+torch.exp(-16*(torch.max(mean[:,num_properties:].pow(2))-1)))
     prediction_loss = nn.functional.mse_loss(mean[:,:num_properties].squeeze(), y_true, reduction='mean')
     if model_type == 'FNO' or model_type == 'Freq_FNO':
         total_loss = reproduction_loss + var_loss + mean_loss + prediction_loss
     else:
+        KLD = - 0.5 * torch.mean(1+ log_var - mean[:,num_properties:].pow(2) - log_var.exp())
         total_loss = reproduction_loss + KLD + prediction_loss
-    return total_loss, reproduction_loss,prediction_loss, var_loss, torch.max(torch.abs(mean))
+    return total_loss, reproduction_loss,prediction_loss, var_loss, torch.max(torch.abs(mean[:,num_properties:]))
 
 def train_model(data_loader, model,device,optimizer,x_dim,model_type,num_properties):
     model.train()

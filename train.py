@@ -23,7 +23,7 @@ if __name__ == '__main__':
     device = torch.device("cuda" if cuda else "cpu")
     im_x = 50
     im_y = 50 
-    model_type = 'FNO'
+    model_type = 'Freq_FNO'
     dataset_path = './datasets/Wang/ShapeSpace.mat'
     property_path = './datasets/Wang/PropertySpace.mat'
     batch_size = 16
@@ -32,7 +32,7 @@ if __name__ == '__main__':
     latent_dim = 32
     num_properties = 5  # Number of properties in the dataset
     lr = 1e-4
-    epochs = 80
+    epochs = 800
     results_dir = './results'
     model_file = osp.join("checkpoints",model_type+"_model.pth")
     ## setup logger
@@ -72,11 +72,11 @@ if __name__ == '__main__':
     train_dataset, test_dataset = train_test_split(dataset, test_size=0.1, random_state=42)
     
     # ── ADD THESE LINES FOR A SMALL DEBUG SUBSET 
-    debug_n = 200
+    debug_n = 1000
     train_dataset = Subset(train_dataset, list(range(debug_n)))
     print(f"  Debug mode: training on only {debug_n} samples "  f"→ {len(train_dataset)/batch_size:.0f} batches/epoch")
 
-    debug_n = 20
+    debug_n = 100
     test_dataset = Subset(test_dataset, list(range(debug_n)))
     print(f"  Debug mode: testing on only {debug_n} samples "  f"→ {len(test_dataset)/batch_size:.0f} batches/epoch")
 
@@ -101,7 +101,13 @@ if __name__ == '__main__':
     
     print("train_loader shape: {}".format(len(train_loader)))
 
-    model = Model(num_properties,x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y, modes1=10, modes2=6).to(device)
+    if osp.exists(model_file):
+        print("Loading model from", model_file)
+        model = torch.load(model_file,map_location=device)
+        model.device = device
+    else:
+        model = Model(num_properties,x_dim, hidden_dim, latent_dim,device,model_type,im_x,im_y, modes1=10, modes2=6).to(device)
+    model.to(device)
     print("Model created with type:", model_type)
     optimizer = Adam(model.parameters(), lr=lr)
     # New Scheduler to reduce loss 
