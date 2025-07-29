@@ -82,8 +82,8 @@ if __name__ == '__main__':
     
     print("train_loader shape: {}".format(len(train_loader)))
         
-    model_file = osp.join("checkpoints","well_trained2_"+model_type+"_model.pth")
-    loaded_model = torch.load(model_file,map_location=torch.device('cpu'))
+    model_file = osp.join("checkpoints","well_trained2_Freq_FNO_model.pth")
+    loaded_model = torch.load(model_file,map_location=torch.device('cpu'), weights_only=False) # I got an error so I added this
     loaded_model.device = device
     loaded_model.to(device)
     loaded_model.eval()
@@ -163,6 +163,7 @@ if __name__ == '__main__':
     x_hat_list.append(x_hat.cpu().detach().numpy().reshape(im_x,im_y))
     titles.append("Property Adjusted Image")
     show_image_group(x_hat_list,titles)
+
 
 
 
