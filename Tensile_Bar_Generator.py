@@ -5,17 +5,15 @@ Created on Mon Jul 28 23:05:08 2025
 @author: joory
 """
 
+# Tensile_Bar_Generator.py
 
+# Worked
 import trimesh
 import shapely.geometry as geom
 import shapely.affinity as affinity
 import numpy as np
 import os
-import numpy as np
 import cv2                     # ← add this
-import trimesh
-import shapely.geometry as geom
-import shapely.affinity as affinity
 from PIL import Image
 
 
@@ -35,14 +33,20 @@ def build_astm_by_block_with_solid_ends(
 
     # 1) Extract one “block” polygon from your binary image
     #    (same as before in build_astm_d638_lattice_by_block)
+   
     mask = (binary_img > 128).astype(np.uint8)
+    
+    kernel = np.ones((3, 3), np.uint8)
+    mask = cv2.dilate(mask, kernel, iterations=1)  # Dilation to fill gaps
+
+ 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     block_polys = []
     for cnt in contours:
         pts = cnt.squeeze() * (block_size / 50.0)  # scale 50px→block_size
         if len(pts) < 3: continue
         block_polys.append(geom.Polygon(pts))
-    block_shape = geom.GeometryCollection(block_polys).buffer(0)
+    block_shape = geom.GeometryCollection(block_polys).buffer(0.03)
 
     # 2) How many whole blocks fit across gauge
     nx = int(np.floor(L_gauge   / block_size))    
@@ -58,8 +62,8 @@ def build_astm_by_block_with_solid_ends(
     for i in range(nx):
         for j in range(ny):
             # footprint in mm
-            tx = grip_len + i*block_size
-            ty = j*block_size + y_off
+            tx = grip_len + i * block_size # + (block_size / 2)
+            ty = j * block_size + y_off # + (block_size / 2)
             block_pos = affinity.translate(block_shape, xoff=tx, yoff=ty)
             mesh = trimesh.creation.extrude_polygon(block_pos, thickness, engine="triangle")
             meshes.append(mesh)
