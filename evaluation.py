@@ -36,6 +36,7 @@ if __name__ == '__main__':
     latent_dim = 32
     lr = 1e-3
     epochs = 1000
+    k = 32
 
     ## setup logger
     kwargs = {'num_workers': 1, 'pin_memory': False} 
@@ -102,12 +103,12 @@ if __name__ == '__main__':
     pred = F.sigmoid(pred)
     x_hat_list = []
     titles = []
-    x_hat_list.append(input[0].cpu().detach().numpy().reshape(im_x,im_y))
+    x_hat_list.append(input[k].cpu().detach().numpy().reshape(im_x,im_y))     # Changed 0 --> k
     titles.append("Input Image")
-    x_hat_list.append(pred[0].cpu().detach().numpy().reshape(im_x,im_y))   
+    x_hat_list.append(pred[k].cpu().detach().numpy().reshape(im_x,im_y))      # Changed 0 --> k
     titles.append("Predicted Image")
 
-    latent_vector = mean[[0]]
+    latent_vector = mean[[k]]           # Changed 0 --> k
 
     if model_type == 'Freq_FNO':
         z = loaded_model.reparameterization_FreqNO(mean, log_var)
@@ -123,7 +124,7 @@ if __name__ == '__main__':
         z = torch.complex(z_real, z_image)
         print("z[0,0,0] :{}".format(z[0,0,0]))
         x_hat = loaded_model.Decoder(z,50,50)
-        x_hat_list.append(x_hat[0].cpu().detach().numpy().reshape(im_x,im_y))
+        x_hat_list.append(x_hat[k].cpu().detach().numpy().reshape(im_x,im_y))
         titles.append("Reconstructed Image")
     elif model_type == 'FNO':
         latent_vector = torch.tile(latent_vector,(1,1,50,50))
@@ -135,12 +136,17 @@ if __name__ == '__main__':
     plt.close('all')
 
     mean_sq = mean.squeeze()
+    
     property_tunning = True
+
     if property_tunning:
-        print("Properties: {}".format(mean_sq[0,:5]))
-        mean_sq[0,0] += 0.2
-        middle_p = mean_sq[0,:]
-        middle_p = middle_p[None,:, None, None]
+         print("Original Properties: {}".format(mean_sq[0,:5]))
+         mean_sq[0,2] += 0.8
+         print("New Properties: {}".format(mean_sq[0,:5]))
+         middle_p = mean_sq[k,:]
+         middle_p = middle_p[None,:, None, None]
+        
+
     else:
         ## print the range of the five proerties
         print("mean shape: {}".format(mean_sq.shape))
@@ -156,6 +162,7 @@ if __name__ == '__main__':
         middle_p = torch.einsum('ik,kj->ij',t,mean_sq)
         print("middle_p shape: {}".format(middle_p.shape))
         middle_p = middle_p[:,:, None, None]
+    
     var = 3e-5* torch.ones_like(middle_p)
     middle_z = loaded_model.reparameterization_FreqNO(middle_p, var)
     x_hat = loaded_model.Decoder(middle_z)
