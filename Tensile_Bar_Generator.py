@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Jul 28 23:05:08 2025
-
-@author: joory
-"""
 
 # Tensile_Bar_Generator.py
 
@@ -20,7 +14,7 @@ from PIL import Image
 def build_astm_by_block_with_solid_ends(
     binary_img:   np.ndarray,  # 50×50 array, 0 or 255
     stl_path:     str,
-    block_size:   float = 1.0,   # mm: the width/height of one block
+    block_size:   float = 3.0,   # mm: the width/height of one block
     thickness:    float = 3.2
 ):
     """
@@ -40,17 +34,26 @@ def build_astm_by_block_with_solid_ends(
     mask = cv2.dilate(mask, kernel, iterations=1)  # Dilation to fill gaps
 
  
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
     block_polys = []
+
     for cnt in contours:
         pts = cnt.squeeze() * (block_size / 50.0)  # scale 50px→block_size
         if len(pts) < 3: continue
         block_polys.append(geom.Polygon(pts))
-    block_shape = geom.GeometryCollection(block_polys).buffer(0.03)
+    block_shape = geom.GeometryCollection(block_polys).buffer(0.035)
 
     # 2) How many whole blocks fit across gauge
-    nx = int(np.floor(L_gauge   / block_size))    
-    ny = int(np.floor(W_gauge   / block_size))
+    # tile exactly as many whole cells as will fit:
+    nx = int(round(L_gauge / block_size))
+    ny = int(round(W_gauge / block_size))
+
+    # nx = int(np.floor(L_gauge   / block_size))    
+    # ny = int(np.floor(W_gauge   / block_size))
+    
     # gauge region sits in the middle of the 19 mm height
     gauge_y0 = (W_end - W_gauge)/2.0
     # center the discrete rows inside that 13 mm band
@@ -85,16 +88,16 @@ def build_astm_by_block_with_solid_ends(
 if __name__ == "__main__":
 
     # 1) load your binary lattice image
-    img    = Image.open("vae_output_binary.png").convert("L")
+    img    = Image.open("vae_output_sample34_binary.png").convert("L")
     binary = np.array(img)  # 50×50, 0 or 255
 
     # 2) choose block size = gauge_length / 50 px = 1 mm
-    block_size = 50.0 / 50   # =1.0 mm
+    block_size = 3.0   
 
     # 3) build and export
     build_astm_by_block_with_solid_ends(
         binary_img = binary,
-        stl_path   = "constructed_bar.stl",
+        stl_path   = "constructed_bar_sample34.stl",
         block_size = block_size,
         thickness  = 3.2
         )

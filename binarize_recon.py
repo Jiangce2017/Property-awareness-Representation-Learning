@@ -9,9 +9,10 @@ from PIL import Image
 import numpy as np
 import cv2
 
-# 1) Load the full 4-panel figure
-full = Image.open("vae_recon_2.png")
+# 1) Load reconstrcuted image
+full = Image.open("vae_recon_sample34_2.png")
 
+# 1) Load the full 4-panel figure
 # w, h = full.size
 # panel_w = w // 4  # each panel is 1/4th of width
 
@@ -23,11 +24,13 @@ full = Image.open("vae_recon_2.png")
 
 # 3) Convert to grayscale array and run Otsu’s threshold
 # gray = recon.convert("L")
+
+# 2) Convert to grayscale array and run Otsu’s
 gray = full.convert("L")
 arr  = np.array(gray)
 _, binary = cv2.threshold(arr, 0, 255,
                           cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-# 3b) Downsample to 50×50 with nearest‐neighbor
+# 3) Downsample to 50×50 with nearest‐neighbor
 binary = cv2.resize(
         binary,
         (50, 50),
@@ -35,6 +38,6 @@ binary = cv2.resize(
     )
 
 # 4) Save the mask in the format your bar-generator expects
-Image.fromarray(binary).save("vae_recon_binary.png")
-print("✅ Cropped & binarized → vae_recon_binary.png")
+Image.fromarray(binary).save("vae_recon_sample34_binary.png")
+print("✅ Cropped & binarized → vae_recon_sample34_binary.png")
 
