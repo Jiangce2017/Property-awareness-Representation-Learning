@@ -15,9 +15,10 @@ from sklearn.model_selection import train_test_split
 
 from models import Model
 from utils import loss_function, load_mat, show_image, CombinedDataset, show_image_group
+from elasticity_tensor_2d import elasticity   
 
 if __name__ == '__main__':
-    torch.manual_seed(42)
+    torch.manual_seed(142)
     cuda = False
     device = torch.device("cuda" if cuda else "cpu")
     im_x = 50
@@ -135,10 +136,11 @@ if __name__ == '__main__':
     plt.close('all')
 
     mean_sq = mean.squeeze()
-    property_tunning = True
+    property_tunning = False
     if property_tunning:
         print("Properties: {}".format(mean_sq[0,:5]))
         mean_sq[0,0] += 0.2
+        #mean_sq[0,num_properties:] += 0.1* torch.randn(latent_dim-num_properties)
         middle_p = mean_sq[0,:]
         middle_p = middle_p[None,:, None, None]
     else:
@@ -149,17 +151,25 @@ if __name__ == '__main__':
         print("min p2: {}, max p2: {}".format(torch.min(mean_sq[:,2]),torch.max(mean_sq[:,2])))
         print("min p3: {}, max p3: {}".format(torch.min(mean_sq[:,3]),torch.max(mean_sq[:,3])))
         print("min p4: {}, max p4: {}".format(torch.min(mean_sq[:,4]),torch.max(mean_sq[:,4])))
-
+        mean_sq = mean_sq[:3,:]
         ## generate one middle point in inside the simplex
         t = torch.softmax(torch.randn(1, mean_sq.shape[0]),dim=1)
         print("check sigmax t: {}".format(torch.sum(t)))
         middle_p = torch.einsum('ik,kj->ij',t,mean_sq)
         print("middle_p shape: {}".format(middle_p.shape))
         middle_p = middle_p[:,:, None, None]
+        print("middle_p property: {}".format(middle_p[:,:num_properties].squeeze()))
+        
     var = 3e-5* torch.ones_like(middle_p)
     middle_z = loaded_model.reparameterization_FreqNO(middle_p, var)
     x_hat = loaded_model.Decoder(middle_z)
-
+    x_hat[x_hat<0.5] = 0
+    x_hat[x_hat>=0.5] = 1.0
+    ## check property with homogenization FEM
+    print("x_hat shape: {}".format(x_hat.shape))
+    Q = elasticity(x_hat.cpu().detach().numpy().reshape(im_x,im_y))
+    print("Q: {}".format(Q))
+    print("density: {}".format(torch.mean(x_hat)))
     x_hat_list.append(x_hat.cpu().detach().numpy().reshape(im_x,im_y))
     titles.append("Property Adjusted Image")
     show_image_group(x_hat_list,titles)
