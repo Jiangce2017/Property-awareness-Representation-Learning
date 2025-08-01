@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 
 from models import Model
-from utils import loss_function, load_mat, show_image, CombinedDataset, show_image_group
+from utils import loss_function, load_mat, show_image, CombinedDataset, show_image_group, plot_ternary
 from elasticity_tensor_2d import elasticity   
 
 if __name__ == '__main__':
@@ -112,17 +112,17 @@ if __name__ == '__main__':
 
     if model_type == 'Freq_FNO':
         z = loaded_model.reparameterization_FreqNO(mean, log_var)
-        print("z[0,0,0] :{}".format(z[0,0,0]))
+        #print("z[0,0,0] :{}".format(z[0,0,0]))
         torch.manual_seed(123)
 
         var = 3e-5* torch.ones_like(log_var)
-        print("var: {}".format(torch.max(var)))
+        #print("var: {}".format(torch.max(var)))
         epsilon_real = torch.randn(mean.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,:latent_dim//2,:,:]) 
         z_real = mean[:,:latent_dim//2,:,:] + epsilon_real
         epsilon_image = torch.randn(mean.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,latent_dim//2:,:,:])
         z_image = mean[:,latent_dim//2:,:,:] + epsilon_image
         z = torch.complex(z_real, z_image)
-        print("z[0,0,0] :{}".format(z[0,0,0]))
+        #print("z[0,0,0] :{}".format(z[0,0,0]))
         x_hat = loaded_model.Decoder(z,50,50)
         x_hat_list.append(x_hat[0].cpu().detach().numpy().reshape(im_x,im_y))
         titles.append("Reconstructed Image")
@@ -133,8 +133,18 @@ if __name__ == '__main__':
     else:
         x_hat = loaded_model.Decoder(latent_vector)
         show_image(x_hat.cpu().detach().numpy().reshape(50,50))    
-    plt.close('all')
+    
 
+    output_file = osp.join(results_dir, "ternary_plot.png")
+    plot_ternary(mean[:3],loaded_model,im_x, im_y,latent_dim, output_file)
+    # property of first simplex point
+    print("v0 property: {}".format(mean[0,:num_properties].squeeze()))
+    # property of second simplex point
+    print("v1 property: {}".format(mean[1,:num_properties].squeeze()))
+    # property of third simplex point
+    print("v2 property: {}".format(mean[2,:num_properties].squeeze()))
+
+    plt.close('all')
     mean_sq = mean.squeeze()
     property_tunning = False
     if property_tunning:
@@ -145,20 +155,20 @@ if __name__ == '__main__':
         middle_p = middle_p[None,:, None, None]
     else:
         ## print the range of the five proerties
-        print("mean shape: {}".format(mean_sq.shape))
-        print("min p0: {}, max p0: {}".format(torch.min(mean_sq[:,0]),torch.max(mean_sq[:,0])))
-        print("min p1: {}, max p1: {}".format(torch.min(mean_sq[:,1]),torch.max(mean_sq[:,1])))
-        print("min p2: {}, max p2: {}".format(torch.min(mean_sq[:,2]),torch.max(mean_sq[:,2])))
-        print("min p3: {}, max p3: {}".format(torch.min(mean_sq[:,3]),torch.max(mean_sq[:,3])))
-        print("min p4: {}, max p4: {}".format(torch.min(mean_sq[:,4]),torch.max(mean_sq[:,4])))
+        #print("mean shape: {}".format(mean_sq.shape))
+        # print("min p0: {}, max p0: {}".format(torch.min(mean_sq[:,0]),torch.max(mean_sq[:,0])))
+        # print("min p1: {}, max p1: {}".format(torch.min(mean_sq[:,1]),torch.max(mean_sq[:,1])))
+        # print("min p2: {}, max p2: {}".format(torch.min(mean_sq[:,2]),torch.max(mean_sq[:,2])))
+        # print("min p3: {}, max p3: {}".format(torch.min(mean_sq[:,3]),torch.max(mean_sq[:,3])))
+        # print("min p4: {}, max p4: {}".format(torch.min(mean_sq[:,4]),torch.max(mean_sq[:,4])))
         mean_sq = mean_sq[:3,:]
         ## generate one middle point in inside the simplex
         t = torch.softmax(torch.randn(1, mean_sq.shape[0]),dim=1)
-        print("check sigmax t: {}".format(torch.sum(t)))
+        #print("check sigmax t: {}".format(torch.sum(t)))
         middle_p = torch.einsum('ik,kj->ij',t,mean_sq)
-        print("middle_p shape: {}".format(middle_p.shape))
+        #print("middle_p shape: {}".format(middle_p.shape))
         middle_p = middle_p[:,:, None, None]
-        print("middle_p property: {}".format(middle_p[:,:num_properties].squeeze()))
+        #print("middle_p property: {}".format(middle_p[:,:num_properties].squeeze()))
         
     var = 3e-5* torch.ones_like(middle_p)
     middle_z = loaded_model.reparameterization_FreqNO(middle_p, var)
@@ -173,6 +183,7 @@ if __name__ == '__main__':
     x_hat_list.append(x_hat.cpu().detach().numpy().reshape(im_x,im_y))
     titles.append("Property Adjusted Image")
     show_image_group(x_hat_list,titles)
+    
 
 
 
