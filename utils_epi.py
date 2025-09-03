@@ -9,27 +9,39 @@ from tqdm import tqdm
 def property_pred_loss(pred, true):
     return torch.mean((pred-true)**2/true**2)
 
-def loss_function(x, x_hat,y_true, mean, log_var,model_type,num_properties):
+def loss_function(x, x_hat,y_true, mean, sph_err_encoder, mean_decoder,sph_err_decoder,model_type,num_properties):
+    var_loss = torch.mean(sph_err_encoder) + torch.mean(sph_err_decoder)
+    # print("var_loss: {}".format(var_loss))
+    # print("max x_hat: {}, min x_hat: {}".format(torch.max(x_hat), torch.min(x_hat)))
     reproduction_loss = nn.functional.binary_cross_entropy(x_hat,x, reduction='mean')
-    KLD = - 0.5 * torch.mean(1+ log_var - mean.pow(2) - log_var.exp())
+    #prediction_loss = nn.functional.mse_loss(mean[:,:num_properties].squeeze(), y_true, reduction='mean')
+    property_loss = property_pred_loss(mean[:,:num_properties].squeeze(), y_true)
+    reproduction_mid_value_loss = nn.functional.mse_loss(mean_decoder.squeeze(), mean.squeeze(), reduction='mean')
+    total_loss = reproduction_loss + var_loss  + property_loss + reproduction_mid_value_loss
+    return total_loss, reproduction_loss, property_loss, torch.mean(sph_err_encoder),torch.mean(sph_err_decoder), reproduction_mid_value_loss
+
+
+def loss_function_backup(x, x_hat,y_true, mean, log_var,model_type,num_properties):
+    reproduction_loss = nn.functional.binary_cross_entropy(x_hat,x, reduction='mean')
     var_loss = torch.mean(torch.exp(log_var))
-    mean_loss = 1/(1+torch.exp(-16*(torch.max(mean.pow(2))-1)))
+    mean_loss = 1/(1+torch.exp(-16*(torch.max(mean[:,num_properties:].pow(2))-1)))
     prediction_loss = nn.functional.mse_loss(mean[:,:num_properties].squeeze(), y_true, reduction='mean')
-    #property_pred_loss = property_pred_loss(mean[:,:num_properties].squeeze(), y_true)
     if model_type == 'FNO' or model_type == 'Freq_FNO':
         total_loss = reproduction_loss + var_loss + mean_loss + prediction_loss
     else:
+        KLD = - 0.5 * torch.mean(1+ log_var - mean[:,num_properties:].pow(2) - log_var.exp())
         total_loss = reproduction_loss + KLD + prediction_loss
-    return total_loss, reproduction_loss,prediction_loss, var_loss, torch.max(torch.abs(mean))
+    return total_loss, reproduction_loss,prediction_loss, var_loss, torch.max(torch.abs(mean[:,num_properties:]))
 
 def train_model(data_loader, model,device,optimizer,x_dim,model_type,num_properties):
     model.train()
     overall_loss = 0
     rep_loss = 0
     m_loss = 0
-    v_loss = 0
+    err_e = 0
+    err_d = 0
     pred_loss = 0
-    for batch_idx, (input, y_true) in enumerate(tqdm(data_loader)):
+    for batch_idx, (input, y_true) in enumerate(data_loader):
         #x = x.view(batch_size, x_dim)
         input = input.to(device)
         y_true = y_true.float()
@@ -38,38 +50,42 @@ def train_model(data_loader, model,device,optimizer,x_dim,model_type,num_propert
 
         optimizer.zero_grad()
 
-        pred, mean, log_var = model(input)
+        pred, mean, sph_err_encoder, mean_decoder, sph_err_docoder = model(input)
 
-        loss,reproduction_loss, prediction_loss, var_loss, mean_loss = loss_function(input.view(-1,x_dim), pred.view(-1,x_dim), y_true, mean, log_var,model_type,num_properties)
+        loss,reproduction_loss, prediction_loss, sph_err_e, sph_err_d, mean_loss = loss_function(input.view(-1,x_dim), pred.view(-1,x_dim), y_true, mean, sph_err_encoder,mean_decoder, sph_err_docoder,model_type,num_properties)
         
         overall_loss += loss.item()
         rep_loss += reproduction_loss.item()
         pred_loss += prediction_loss.item()
+        err_e += sph_err_e.item()
+        err_d += sph_err_d.item()
         m_loss += mean_loss.item()
-        v_loss += var_loss.item()
         loss.backward()
         optimizer.step()
-    return overall_loss / (batch_idx+1), rep_loss/(batch_idx+1), pred_loss/(batch_idx+1), v_loss/(batch_idx+1), m_loss/(batch_idx+1)
+    return overall_loss / (batch_idx+1), rep_loss/(batch_idx+1), pred_loss/(batch_idx+1), err_e/(batch_idx+1), err_d/(batch_idx+1), m_loss/(batch_idx+1)
             
 def test_model(data_loader, model,device,x_dim,model_type,num_properties):
     model.eval()  
     overall_loss = 0
     rep_loss = 0
     m_loss = 0
-    v_loss = 0
+    err_e = 0
+    err_d = 0
     pred_loss = 0
     for batch_idx, (input, y_true) in enumerate(tqdm(data_loader)):
         input = input.to(device)
         y_true = y_true.float()
         y_true = y_true.to(device)
-        pred, mean, log_var = model(input)
-        loss,reproduction_loss, prediction_loss, var_loss, mean_loss = loss_function(input.view(-1,x_dim), pred.view(-1,x_dim), y_true, mean, log_var,model_type,num_properties)
+        pred, mean, sph_err_encoder, mean_decoder, sph_err_docoder = model(input)
+        loss,reproduction_loss, prediction_loss, sph_err_e, sph_err_d, mean_loss = loss_function(input.view(-1,x_dim), pred.view(-1,x_dim), y_true, mean, sph_err_encoder, mean_decoder,sph_err_docoder,model_type,num_properties)
         overall_loss += loss.item()
         rep_loss += reproduction_loss.item()
         pred_loss += prediction_loss.item()
+        err_e += sph_err_e.item()
+        err_d += sph_err_d.item()
         m_loss += mean_loss.item()
-        v_loss += var_loss.item()
-    return overall_loss / (batch_idx+1), rep_loss/(batch_idx+1), pred_loss/(batch_idx+1),  v_loss/(batch_idx+1), m_loss/(batch_idx+1)
+        
+    return overall_loss / (batch_idx+1), rep_loss/(batch_idx+1), pred_loss/(batch_idx+1), err_e/(batch_idx+1),err_d/(batch_idx+1), m_loss/(batch_idx+1)
             
 
 class Logger(object):
@@ -114,6 +130,16 @@ def show_image(x):
         fig = plt.figure()
         cmap = 'Greens'
         plt.imshow(x,cmap=cmap)
+        plt.show()
+
+def show_image_group(x,titles=None):
+        fig, axs = plt.subplots(1, len(x), figsize=(4 * len(x), 4))
+        for i, ax in enumerate(axs):
+            ax.imshow(x[i], cmap='Greens')
+            ax.axis('off')
+            if titles is not None:
+                ax.set_title(titles[i])
+        plt.tight_layout()
         plt.show()
 
 def plot_ternary(simplex_points,loaded_model,im_x, im_y,latent_dim, output_file):

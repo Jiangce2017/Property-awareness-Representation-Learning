@@ -17,7 +17,12 @@ if __name__ == '__main__':
     device = torch.device("cuda" if cuda else "cpu")
     im_x = 50
     im_y = 50 
-    model_type = 'Freq_FNO'
+    batch_size = 64
+    x_dim  = 2500
+    hidden_dim = 64
+    latent_dim = 32
+    num_properties = 5  # Number of properties in the dataset
+    model_type = 'Freq_FNO'  # Options: 'FNO', 'Freq_FNO', 'CNN', 'FL'
     dataset_root_dir = '/scratch/jc14407/datasets'
     dataset_path = osp.join(dataset_root_dir, 'Wang/ShapeSpace.mat')
     property_path = osp.join(dataset_root_dir, 'Wang/PropertySpace.mat')
@@ -27,24 +32,18 @@ if __name__ == '__main__':
     if not osp.exists(property_path):
         print("Property dataset not found at", property_path)
         exit(1)
-
-    
     checkpoints_dir = 'checkpoints'
     if not osp.exists(checkpoints_dir):
         os.makedirs(checkpoints_dir)
-    model_file = osp.join(checkpoints_dir,model_type+"_model.pth")    
+    model_file = osp.join(checkpoints_dir,model_type+"_"+ str(latent_dim)+"_"+str(hidden_dim)+"_model.pth")    
     
     results_dir = './results'
     if not osp.exists(results_dir):
         os.makedirs(results_dir)
     
-    batch_size = 64
-    x_dim  = 2500
-    hidden_dim = 64
-    latent_dim = 64
-    num_properties = 5  # Number of properties in the dataset
+    
     lr = 1e-4
-    epochs = 100 
+    epochs = 1000
     if model_type == 'FNO' or model_type == 'Freq_FNO':
         modes1 = 10
         modes2 = 6
@@ -69,6 +68,8 @@ if __name__ == '__main__':
     
     X = mat_data['ShapeSpace'].astype(np.float32)
     y = prop_data['PropertySpace'].astype(np.float32).transpose()   
+    # X = X[:1000]
+    # y = y[:1000]
     print("X shape:{}, y shape: {}".format(X.shape, y.shape))
     
     # Compute min/max per property
@@ -78,7 +79,6 @@ if __name__ == '__main__':
     for i, (lo, hi) in enumerate(zip(prop_min, prop_max), 1):
         print(f"  Property {i}:  min = {lo:.4f},  max = {hi:.4f}")
 
-    
     dataset = CombinedDataset(X,y)
 
     print("dataset shape:{}".format(len(dataset)))
@@ -133,8 +133,9 @@ if __name__ == '__main__':
         'train_var': v_loss, 
         'train_mean': m_loss
         })
+        torch.save(model, model_file)
         if epoch % 10 == 0:
-            torch.save(model, model_file)
+
             overall_loss, rep_loss, pred_loss, v_loss, m_loss = test_model(test_loader, model,device,x_dim,model_type,num_properties)
             print("\tEpoch", epoch + 1, "complete!", "\tAverage Test Loss: ", overall_loss)
             test_logger.log({
