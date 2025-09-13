@@ -29,15 +29,17 @@ class Model(nn.Module):
             self.Decoder = FreqFNO_Decoder(batchsize, device,latent_dim=latent_dim//2, hidden_dim = hidden_dim, output_dim = x_dim,im_x=im_x, im_y=im_y,modes1=modes1,modes2=modes2)
         elif model_type == 'Spherical_FNO':
             self.Encoder = Spherical_FNO_Encoder(batchsize,device, num_properties,input_dim=x_dim, hidden_dim=hidden_dim, latent_dim=latent_dim,im_x=im_x, im_y=im_y,modes1=modes1,modes2=modes2)
-            self.Decoder = Spherical_FNO_Decoder(batchsize, device, latent_dim=latent_dim, hidden_dim = hidden_dim, output_dim = x_dim,im_x=im_x, im_y=im_y,modes1=modes1,modes2=modes2)
+            self.Decoder = Spherical_FNO_Decoder(batchsize, device, latent_dim=latent_dim//2, hidden_dim = hidden_dim, output_dim = x_dim,im_x=im_x, im_y=im_y,modes1=modes1,modes2=modes2)
     
     def forward(self, x):
         if self.model_type == 'Spherical_FNO':
             mid_value, sph_err_encoder = self.Encoder(x)
-            batchsize = x.shape[0]
-            channels = mid_value.shape[1]
-            device = x.device
-            z = self.Encoder.reparameterization(mid_value,batchsize, channels, self.im_x, self.im_y,device)
+            var = torch.rand_like(mid_value)*1e-5
+            # batchsize = x.shape[0]
+            # channels = mid_value.shape[1]
+            # device = x.device
+            #z = self.Encoder.reparameterization(mid_value,batchsize, channels, self.im_x, self.im_y,device)
+            z = self.Encoder.reparameterization(mid_value,var)
             x_hat, mid_value_decoder, sph_err_decoder = self.Decoder(z)
         else:
             mid_value, sph_err_encoder = self.Encoder(x)
@@ -169,7 +171,7 @@ class Spherical_FNO_Encoder(nn.Module):
         self.w3 = nn.Conv2d(self.latent_dim, self.latent_dim, 1)
         self.w4 = nn.Conv2d(self.latent_dim, self.latent_dim, 1)
         self.w5 = nn.Conv2d(self.latent_dim, self.latent_dim, 1)
-        self.x_grid, self.y_grid, self.dx, self.dy = get_spherical_gird(batchsize, latent_dim, im_x, im_y, device)
+        self.x_grid, self.y_grid, self.dx, self.dy = self.get_spherical_grid(batchsize, latent_dim, im_x, im_y, device)
 
     def forward(self, x):
         x = x.view(-1,self.im_x,self.im_y,1)
@@ -213,22 +215,16 @@ class Spherical_FNO_Encoder(nn.Module):
         x2 = self.w5(x)
         x = x1 + x2
 
-        x = 2*torch.sigmoid(x)-1
+        #x = 2*torch.sigmoid(x)-1
         if self.im_x % 2 ==0:
             mid_value = (x[:,:,self.im_x//2-1,self.im_x//2] + x[:,:,self.im_x//2,self.im_x//2]+ x[:,:,self.im_x//2-1,self.im_x//2-1] + x[:,:,self.im_x//2,self.im_x//2-1])/4
         
         else:
             mid_value = x[:,:,self.im_x//2,self.im_x//2]
         mid_value = mid_value[:,:,None,None]
-        sph_err = _calculate_spherical_error(x,mid_value,self.x_grid,self.y_grid,self.dx,self.dy)
+        mid_value[:,1,:,:] = 0.5*torch.sigmoid(mid_value[:,1,:,:])-0.05
+        sph_err = self._calculate_spherical_error(x,mid_value,self.x_grid,self.y_grid,self.dx,self.dy)
         return mid_value, sph_err
-    
-    def reparameterization(self, mid_value,batchsize, channels, size_x, size_y,device):
-        ## rebuild the spherical height field from mid_value
-        z_grid = torch.sqrt(2 - self.x_grid**2 - self.y_grid**2)
-        z_grid = z_grid + 1 - np.sqrt(2)
-        z = z_grid*(mid_value+1e-8)
-        return z
     
     def get_grid(self, shape, device):
         batchsize, size_x, size_y = shape[0], shape[1], shape[2]
@@ -237,6 +233,60 @@ class Spherical_FNO_Encoder(nn.Module):
         gridy = torch.tensor(np.linspace(0, 1, size_y), dtype=torch.float)
         gridy = gridy.reshape(1, 1, size_y, 1).repeat([batchsize, size_x, 1, 1])
         return torch.cat((gridx, gridy), dim=-1).to(device) 
+
+    def get_spherical_grid(self, batchsize, channels, size_x, size_y, device):
+        x_coords = torch.linspace(-1, 1, size_x).to(device)
+        y_coords = torch.linspace(-1, 1, size_y).to(device)
+        l0 = np.sqrt(2*np.sqrt(2)-1)/np.sqrt(2)
+        x_coords = x_coords * l0
+        y_coords = y_coords * l0
+        x_grid, y_grid = torch.meshgrid(x_coords, y_coords, indexing='ij')
+        x_grid = x_grid.unsqueeze(0).unsqueeze(0).repeat(batchsize,channels,1,1)
+        y_grid = y_grid.unsqueeze(0).unsqueeze(0).repeat(batchsize,channels,1,1)
+        dx = x_coords[1]-x_coords[0]
+        dy = y_coords[1]-y_coords[0]
+        return x_grid, y_grid, dx, dy
+
+    def reparameterization(self,mean,var):
+        modes1 = 10
+        modes2 = 6
+        device = mean.device
+        latent_dim = mean.shape[1] 
+        epsilon_real = torch.randn(mean.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,:latent_dim//2,:,:])
+        z_real = mean[:,:latent_dim//2,:,:] + epsilon_real
+        epsilon_image = torch.randn(mean.shape[0], latent_dim//2, modes1, modes2).to(device)* torch.sqrt(var[:,latent_dim//2:,:,:])
+        z_image = mean[:,latent_dim//2:,:,:] + epsilon_image
+        z = torch.complex(z_real, z_image)
+        return z
+    
+    def backup_reparameterization(self, mid_value,batchsize, channels, size_x, size_y,device):
+        ## rebuild the spherical height field from mid_value
+        z0 = 1 - np.sqrt(2)
+        z_grid = torch.sqrt(2 - self.x_grid**2 - self.y_grid**2) + z0
+        z = z_grid*(mid_value+1e-8)
+        return z
+
+    def _calculate_spherical_error(self, x,mid_value,x_grid,y_grid,dx,dy):
+        #batchsize, channels, size_x, size_y = x.shape
+        ## radical error on sphereical surface
+        ## normalize height field
+        small_value_mask = torch.abs(mid_value) < 1e-4
+        # mid_value = mid_value.masked_fill(small_value_mask, 1e-3)
+        x = x/mid_value
+        z0 = 1 - np.sqrt(2)
+        r0_sq = 2
+        K0 = 1/2 
+        ## assume the sphere center is (0,0,1-np.sqrt(2))
+        z_grid = x - z0
+        #z_grid = x - 1 + np.sqrt(2)
+        radius_sq = x_grid**2 + y_grid**2 + z_grid**2
+        radical_error = torch.mean((radius_sq - r0_sq)**2,dim=[2,3],keepdim=True)
+        K = _principal_curvatures_heightfield(z_grid, dx, dy)
+        curvature_err = torch.mean((K[:,:,5:-5,5:-5] - K0)**2,dim=[2,3],keepdim=True)
+        curvature_err = curvature_err.masked_fill(small_value_mask, 0.0)
+        sph_err = radical_error + curvature_err*1e-1
+        # radius = torch.sqrt(torch.mean(radius_sq,dim=[2,3],keepdim=True)/2)
+        return sph_err
         
 class Spherical_FNO_Decoder(nn.Module):
     def __init__(self, batchsize, device, latent_dim, hidden_dim, output_dim,im_x,im_y,modes1,modes2):
@@ -247,8 +297,9 @@ class Spherical_FNO_Decoder(nn.Module):
         self.im_y = im_y
         self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
-        self.p = LocalMLP(latent_dim,hidden_dim, self.im_x, self.im_y)
+        #self.p = LocalMLP(latent_dim,hidden_dim, self.im_x, self.im_y)
         #self.p = nn.Linear(latent_dim, self.hidden_dim) 
+        self.p = LocalMLP_Complex(latent_dim,hidden_dim, self.modes1, self.modes2)
         self.conv0 = SpectralConv2d(self.hidden_dim, self.hidden_dim, self.modes1, self.modes2)
         self.conv1 = SpectralConv2d(self.hidden_dim, self.hidden_dim, self.modes1, self.modes2)
         self.conv2 = SpectralConv2d(self.hidden_dim, self.hidden_dim, self.modes1, self.modes2)
@@ -261,23 +312,17 @@ class Spherical_FNO_Decoder(nn.Module):
         self.w1 = nn.Conv2d(self.hidden_dim, self.hidden_dim, 1)
         self.w2 = nn.Conv2d(self.hidden_dim, self.hidden_dim, 1)
         self.w3 = nn.Conv2d(self.hidden_dim, self.hidden_dim, 1)
-        self.q = MLP(self.hidden_dim, 1, self.latent_dim) # output channel is 1: u(x, y)
+        self.q = MLP(self.hidden_dim, self.latent_dim*2+1, self.hidden_dim*2) # output channel is 1: u(x, y)
         self.activation_function = nn.LeakyReLU(0.2)
+        self.complex_activation_function = ComplexReLU(0.2)
 
-        self.epi_conv0 = SpectralConv2d(self.latent_dim, self.latent_dim, self.modes1, self.modes2)
-        self.epi_conv1 = SpectralConv2d(self.latent_dim, self.latent_dim, self.modes1, self.modes2)
-        self.epi_conv2 = SpectralConv2d(self.latent_dim, self.latent_dim, self.modes1, self.modes2)
-        self.epi_mlp0 = MLP(self.latent_dim, self.latent_dim, self.latent_dim*2)
-        self.epi_mlp1 = MLP(self.latent_dim, self.latent_dim, self.latent_dim*2)
-        self.epi_mlp2 = MLP(self.latent_dim, self.latent_dim, self.latent_dim*2)
-        self.epi_w0 = nn.Conv2d(self.latent_dim, self.latent_dim, 1)
-        self.epi_w1 = nn.Conv2d(self.latent_dim, self.latent_dim, 1)
-        self.epi_w2 = nn.Conv2d(self.latent_dim, self.latent_dim, 1)
+        self.x_grid, self.y_grid, self.dx, self.dy = self.get_spherical_grid(batchsize, latent_dim*2, im_x, im_y, device)
 
-        self.x_grid, self.y_grid, self.dx, self.dy = get_spherical_gird(batchsize, latent_dim, im_x, im_y, device)
-        
-    def forward(self, x0):
-        x = self.activation_function(self.p(x0))
+    def forward(self, x0,output_im_x=50,output_im_y=50):
+        x = self.complex_activation_function(self.p(x0))
+        x = torch.fft.irfft2(x, s=(output_im_x, output_im_y),dim=(-2,-1))
+
+        # x = self.activation_function(self.p(x0))
         x1 = self.conv0(x)
         x1 = self.mlp0(x1)
         x2 = self.w0(x)
@@ -301,34 +346,56 @@ class Spherical_FNO_Decoder(nn.Module):
         x2 = self.w3(x)
         x = x1 + x2
         x = self.q(x)
-        x_hat = torch.sigmoid(x)
+ 
+        x_hat = x[:,0:1,:,:]
+        x_hat = torch.sigmoid(x_hat)
+        x_hat = x_hat.permute(0, 2, 3, 1)
 
-
-        epi_x1 = self.epi_conv0(x0)
-        epi_x1 = self.epi_mlp0(epi_x1)
-        epi_x2 = self.epi_w0(x0)
-        epi_x = epi_x1 + epi_x2
-        epi_x = self.activation_function(epi_x)
-
-        epi_x1 = self.epi_conv1(epi_x)
-        epi_x1 = self.epi_mlp1(epi_x1)
-        epi_x2 = self.epi_w1(epi_x)
-        epi_x = epi_x1 + epi_x2
-        epi_x = self.activation_function(epi_x)
-
-        epi_x1 = self.epi_conv2(epi_x)
-        epi_x1 = self.epi_mlp2(epi_x1)
-        epi_x2 = self.epi_w2(epi_x)
-        x_epi = epi_x1 + epi_x2
+        x_epi = x[:,1:,:,:]
         x_epi = 2*torch.sigmoid(x_epi)-1
-        if self.im_x % 2 ==0:
-            mid_value = (x_epi[:,:,self.im_x//2-1,self.im_x//2] + x_epi[:,:,self.im_x//2,self.im_x//2]+ x_epi[:,:,self.im_x//2-1,self.im_x//2-1] + x_epi[:,:,self.im_x//2,self.im_x//2-1])/4
+        output_im_x = self.im_x
+        if output_im_x % 2 ==0:
+            mid_value = (x_epi[:,:,output_im_x//2-1,output_im_x//2] + x_epi[:,:,output_im_x//2,output_im_x//2]+ x_epi[:,:,output_im_x//2-1,output_im_x//2-1] + x_epi[:,:,output_im_x//2,output_im_x//2-1])/4
         else:
-            mid_value = x_epi[:,:,self.im_x//2,self.im_x//2]
+            mid_value = x_epi[:,:,output_im_x//2,output_im_x//2]
         mid_value = mid_value[:,:,None,None]
-        sph_err = _calculate_spherical_error(x_epi,mid_value,self.x_grid,self.y_grid,self.dx,self.dy)
-
+        sph_err = self._calculate_spherical_error(x_epi,mid_value,self.x_grid,self.y_grid,self.dx,self.dy)
         return x_hat,mid_value, sph_err
+
+    def get_spherical_grid(self, batchsize, channels, size_x, size_y, device):
+        x_coords = torch.linspace(-1, 1, size_x).to(device)
+        y_coords = torch.linspace(-1, 1, size_y).to(device)
+        l0 = np.sqrt(2*np.sqrt(3)-1)/np.sqrt(2)
+        x_coords = x_coords * l0
+        y_coords = y_coords * l0
+        x_grid, y_grid = torch.meshgrid(x_coords, y_coords, indexing='ij')
+        x_grid = x_grid.unsqueeze(0).unsqueeze(0).repeat(batchsize,channels,1,1)
+        y_grid = y_grid.unsqueeze(0).unsqueeze(0).repeat(batchsize,channels,1,1)
+        dx = x_coords[1]-x_coords[0]
+        dy = y_coords[1]-y_coords[0]
+        return x_grid, y_grid, dx, dy
+
+    def _calculate_spherical_error(self, x,mid_value,x_grid,y_grid,dx,dy):
+        #batchsize, channels, size_x, size_y = x.shape
+        ## radical error on sphereical surface
+        ## normalize height field
+        z0 = 1 - np.sqrt(3)
+        r0_sq = 3
+        K0 = 1/3
+        small_value_mask = torch.abs(mid_value) < 1e-4
+        # mid_value = mid_value.masked_fill(small_value_mask, 1e-3)
+        x = x/mid_value
+        ## assume the sphere center is (0,0,0)
+        #z_grid = x - 1 + np.sqrt(3)
+        z_grid = x - z0
+        radius_sq = x_grid**2 + y_grid**2 + z_grid**2
+        radical_error = torch.mean((radius_sq - r0_sq)**2,dim=[2,3],keepdim=True)
+        # ## curvature error on spherical surface
+        K = _principal_curvatures_heightfield(z_grid, dx, dy)
+        curvature_err = torch.mean((K[:,:,5:-5,5:-5] - K0)**2,dim=[2,3],keepdim=True)
+        curvature_err = curvature_err.masked_fill(small_value_mask, 0.0)
+        sph_err = radical_error + curvature_err*1e-1
+        return sph_err
 
 class FNO_Encoder(nn.Module):
     def __init__(self,num_properties,input_dim, hidden_dim, latent_dim,im_x,im_y,modes1, modes2):
@@ -403,8 +470,10 @@ class FNO_Encoder(nn.Module):
         x1 = self.mlp5(x1)
         x2 = self.w5(x)
         x = x1 + x2
+        #x = 2*torch.sigmoid(x)-1
 
         mean = torch.mean(x,dim=(2,3),keepdim=True)
+        mean[:,1,:,:] = 0.5*torch.sigmoid(mean[:,1,:,:])-0.05
         var = torch.var(x,dim=(2,3),keepdim=True)
         return mean, var
     
@@ -506,11 +575,11 @@ class FreqFNO_Decoder(nn.Module):
         self.w1 = nn.Conv2d(self.hidden_dim, self.hidden_dim, 1)
         self.w2 = nn.Conv2d(self.hidden_dim, self.hidden_dim, 1)
         self.w3 = nn.Conv2d(self.hidden_dim, self.hidden_dim, 1)
-        self.q = MLP(self.hidden_dim, self.latent_dim*2+1, self.latent_dim) # output channel is 1: u(x, y)
+        self.q = MLP(self.hidden_dim, self.latent_dim*2+1, self.hidden_dim*2) # output channel is 1: u(x, y)
         self.complex_activation_function = ComplexReLU(0.2)
         self.LeakyReLU = nn.LeakyReLU(0.2)
-        self.x_grid, self.y_grid, self.dx, self.dy = get_spherical_gird(batchsize, latent_dim*2, im_x, im_y, device)
-        
+        self.x_grid, self.y_grid, self.dx, self.dy = self.get_spherical_grid(batchsize, latent_dim*2, im_x, im_y, device)
+
     def forward(self, x, output_im_x = 50, output_im_y = 50):
         x = self.complex_activation_function(self.p(x))
 
@@ -539,8 +608,9 @@ class FreqFNO_Decoder(nn.Module):
         x2 = self.w3(x)
         x = x1 + x2
         x = self.q(x)
-        x = torch.sigmoid(x)
+        #x = torch.sigmoid(x)
         x_hat = x[:,0:1,:,:]
+        x_hat = torch.sigmoid(x_hat)
         x_hat = x_hat.permute(0, 2, 3, 1)
 
         x_epi = x[:,1:,:,:]
@@ -550,37 +620,45 @@ class FreqFNO_Decoder(nn.Module):
         else:
             mid_value = x_epi[:,:,output_im_x//2,output_im_x//2]
         mid_value = mid_value[:,:,None,None]
-        sph_err = _calculate_spherical_error(x_epi,mid_value,self.x_grid,self.y_grid,self.dx,self.dy)
+        sph_err = self._calculate_spherical_error(x_epi,mid_value,self.x_grid,self.y_grid,self.dx,self.dy)
         return x_hat,mid_value, sph_err
 
-def get_spherical_gird(batchsize, channels, size_x, size_y, device):
-    x_coords = torch.linspace(-1, 1, size_x).to(device)
-    y_coords = torch.linspace(-1, 1, size_y).to(device)
-    x_grid, y_grid = torch.meshgrid(x_coords, y_coords, indexing='ij')
-    x_grid = x_grid.unsqueeze(0).unsqueeze(0).repeat(batchsize,channels,1,1)
-    y_grid = y_grid.unsqueeze(0).unsqueeze(0).repeat(batchsize,channels,1,1)
-    dx = x_coords[1]-x_coords[0]
-    dy = y_coords[1]-y_coords[0]
-    return x_grid, y_grid, dx, dy
+    def get_spherical_grid(self, batchsize, channels, size_x, size_y, device):
+        x_coords = torch.linspace(-1, 1, size_x).to(device)
+        y_coords = torch.linspace(-1, 1, size_y).to(device)
+        l0 = 1/np.sqrt(2)
+        x_coords = x_coords * l0
+        y_coords = y_coords * l0
+        x_grid, y_grid = torch.meshgrid(x_coords, y_coords, indexing='ij')
+        x_grid = x_grid.unsqueeze(0).unsqueeze(0).repeat(batchsize,channels,1,1)
+        y_grid = y_grid.unsqueeze(0).unsqueeze(0).repeat(batchsize,channels,1,1)
+        dx = x_coords[1]-x_coords[0]
+        dy = y_coords[1]-y_coords[0]
+        return x_grid, y_grid, dx, dy
 
-def _calculate_spherical_error(x,mid_value,x_grid,y_grid,dx,dy):
-    #batchsize, channels, size_x, size_y = x.shape
-    ## radical error on sphereical surface
-    ## normalize height field
-    x = x/(mid_value+1e-8)
-    ## assume the sphere center is (0,0,0)
-    z_grid = x
-    #z_grid = x - 1 + np.sqrt(2)
-    radius = x_grid**2 + y_grid**2 + z_grid**2
-    radical_error = torch.mean((radius -1)**2,dim=[2,3],keepdim=True)
-    # ## curvature error on spherical surface 
-    #mean = mid_value + torch.mean(torch.sqrt(radius)- np.sqrt(2),dim=[2,3],keepdim=True)
-
-    K = _principal_curvatures_heightfield(z_grid, dx, dy)
-    curvature_err = torch.mean((K[:,:,5:-5,5:-5] - 1)**2,dim=[2,3],keepdim=True)
-    #print("radical_error: {}, curvature_err: {}".format(torch.mean(radical_error), torch.mean(curvature_err)))
-    sph_err = radical_error + curvature_err*1e-1
-    return sph_err
+    def _calculate_spherical_error(self, x,mid_value,x_grid,y_grid,dx,dy):
+        #batchsize, channels, size_x, size_y = x.shape
+        ## radical error on sphereical surface
+        ## normalize height field
+        z0 = 0
+        r0_sq = 1
+        K0 = 1
+        # original_sign = torch.sign(mid_value)
+        small_value_mask = torch.abs(mid_value) < 1e-4
+        # mid_value = mid_value.masked_fill(small_value_mask, 1e-3)
+        # mid_value = torch.abs(mid_value)*original_sign
+        x = x/mid_value
+        ## assume the sphere center is (0,0,0)
+        z_grid = x - z0
+        radius_sq = x_grid**2 + y_grid**2 + z_grid**2
+        radical_error = torch.mean((radius_sq - r0_sq)**2,dim=[2,3],keepdim=True)
+        # ## curvature error on spherical surface
+        K = _principal_curvatures_heightfield(z_grid, dx, dy)
+        curvature_err = torch.mean((K[:,:,5:-5,5:-5] - K0)**2,dim=[2,3],keepdim=True)
+        curvature_err = curvature_err.masked_fill(small_value_mask, 0.0)
+        #print("radical_error: {}, curvature_err: {}".format(torch.mean(radical_error), torch.mean(curvature_err)))
+        sph_err = radical_error + curvature_err*1e-1
+        return sph_err
 
 def _principal_curvatures_heightfield(z_grid,dx,dy):
     # First derivatives

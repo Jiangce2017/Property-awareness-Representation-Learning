@@ -21,20 +21,20 @@ if __name__ == '__main__':
     batch_size = 64
     x_dim  = 2500
     hidden_dim = 64
-    latent_dim = 32
+    latent_dim = 24
     num_properties = 5  # Number of properties in the dataset
-    model_type = 'Freq_FNO'  # Options: 'FNO', 'Freq_FNO', 'CNN', 'FL'
+    model_type = 'Freq_FNO'  # Options: 'FNO', 'Freq_FNO', 'CNN', 'FL', 'Spherical_FNO'
     dataset_root_dir = '/scratch/jc14407/datasets'
 
-    split_ratio = 0.5
-    lattice_data_dir = '/scratch/jc14407/datasets/Chen/trainning_test_5_5'
+    split_ratio = 0.9
+    lattice_data_dir = '/scratch/jc14407/datasets/Chen/trainning_test_9_1'
 
     lr = 1e-4
     epochs = 5000
     modes1 = 10
     modes2 = 6
 
-    experiment_name = model_type+"_Chen_data_5_5_"+ str(latent_dim)+"_"+str(hidden_dim)
+    experiment_name = model_type+"_Chen_data_9_1_"+ str(latent_dim)+"_"+str(hidden_dim)
     use_old_model = True
 
     train_rho_data_path = osp.join(lattice_data_dir, 'rho_data_train.csv')

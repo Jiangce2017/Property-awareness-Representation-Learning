@@ -7,7 +7,8 @@ import csv
 from tqdm import tqdm
 
 def property_pred_loss(pred, true):
-    return torch.mean((pred-true)**2/true**2)
+    return torch.mean((pred-true)**2/(true**2+1e-4))
+    # return nn.functional.mse_loss(pred, true, reduction='mean')
 
 def loss_function(x, x_hat,y_true, mean, sph_err_encoder, mean_decoder,sph_err_decoder,model_type,num_properties):
     var_loss = torch.mean(sph_err_encoder) + torch.mean(sph_err_decoder)
@@ -17,7 +18,9 @@ def loss_function(x, x_hat,y_true, mean, sph_err_encoder, mean_decoder,sph_err_d
     #prediction_loss = nn.functional.mse_loss(mean[:,:num_properties].squeeze(), y_true, reduction='mean')
     property_loss = property_pred_loss(mean[:,:num_properties].squeeze(), y_true)
     reproduction_mid_value_loss = nn.functional.mse_loss(mean_decoder.squeeze(), mean.squeeze(), reduction='mean')
-    total_loss = reproduction_loss + var_loss  + property_loss + reproduction_mid_value_loss
+    ### make a loss to make the values of mean between 1 and 2
+    mean_loss = torch.mean(1/(1+torch.exp(-16*(mean[:,num_properties:]-2) )) + 1/(1+torch.exp(16*(mean[:,num_properties:]-1))))
+    total_loss = reproduction_loss + var_loss  + property_loss +  reproduction_mid_value_loss + mean_loss
     return total_loss, reproduction_loss, property_loss, torch.mean(sph_err_encoder),torch.mean(sph_err_decoder), reproduction_mid_value_loss
 
 
